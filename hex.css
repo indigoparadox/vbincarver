@@ -8,13 +8,48 @@ body {
    font-family: monospace;
 }
 
+.hex-layout .hex-line .byte_free {
+   padding: 2px 4px;
+}
+
+.hex-layout .hex-line .byte {
+   padding: 2px 4px;
+}
+
+/*
+.hex-layout .hex-line .byte:first-child {
+   padding: 2px 2px 2px 1px;
+   margin: 0 0 0 -2px;
+}
+
+.hex-layout .hex-line .byte:last-child {
+   padding: 2px 1px 2px 2px;
+   margin: 0 -2px 0 0;
+}
+*/
+
+/* Structs */
+
+/*
 .hex-layout .struct {
    border: 1px solid white;
 }
+*/
+
+/* Offsets */
 
 .hex-layout .offset {
-   border: 1px solid white;
+   border-right: 1px solid white;
+   /* padding: 2px 2px 2px 2px; */
+   margin: 0 -1px 0 0;
 }
+
+.hex-layout .offset:last-child {
+   border-right: none;
+   margin: 0;
+}
+
+/* Specific Structs */
 
 .hex-layout .struct-ico-head {
    background: navy;
@@ -26,5 +61,9 @@ body {
 
 .hex-layout .struct-bmp-info {
    background: saddlebrown;
+}
+
+.hex-layout .struct-bmp-palette {
+   background: darkred;
 }
 

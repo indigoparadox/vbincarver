@@ -25,25 +25,24 @@ class FileParser( object ):
         self.out_file.write( '</head><body>' )
         self.out_file.write( '<div class="hex-layout">' )
 
-    def _add_span( self, type_in : str, class_in : str, sz : int ):
+    def _add_span( self, type_in : str, class_in : str ):
         logger = logging.getLogger( 'parser.add_span' )
-        logger.debug( 'adding span for %s: %s (%d bytes)',
-            type_in, class_in, sz )
+        logger.debug( 'adding span for %s: %s',
+            type_in, class_in )
         span = {
             'class': class_in,
             'type': type_in,
-            'size': sz,
             'written': 0
         }
         self.spans_open.append( span )
         self.format_span( span )
         return span
 
-    def add_span_struct( self, class_in : str, sz : int, offsets : dict ):
+    def add_span_struct( self, class_in : str, offsets : dict ):
         for span in self.spans_open:
             assert( 'struct' != span['class'] )
         self.last_struct = class_in
-        span = self._add_span( 'struct', class_in, sz )
+        span = self._add_span( 'struct', class_in )
         span['offsets'] = dict( offsets ) # Copy!
 
     def add_span_offset( self, class_in : str, **kwargs ):
@@ -52,14 +51,17 @@ class FileParser( object ):
         assert( 'struct' == self.spans_open[-1]['type'] )
         struct_class = self.spans_open[-1]['class']
 
-        span = self._add_span( 'offset', class_in, kwargs['size'] )
+        span = self._add_span( 'offset', class_in )
         # TODO: String spans?
         span['contents'] = 0
         span['parent'] = struct_class
+        span['size'] = kwargs['size']
         if 'lsbf' in kwargs:
             span['lsbf'] = kwargs['lsbf']
         if 'store' in kwargs:
             span['store'] = kwargs['store']
+        if 'count_field' in kwargs:
+            span['count_field'] = kwargs['count_field']
 
     def pop_span( self, idx: int ):
 
@@ -76,7 +78,7 @@ class FileParser( object ):
         if 'struct' == span['type']:
             self.format_data['structs'][span['class']]['counts_written'] += 1
 
-        # Store offset contents for later if requested.
+       # Store offset contents for later if requested.
         if 'store' in span.keys() and span['store']:
             logger.debug( 'storing offset %s/%s value %d...',
                 span['parent'], span['class'], span['contents'] )
@@ -88,6 +90,16 @@ class FileParser( object ):
         # Write the closing span and pop the span off the open list.
         self.out_file.write( '</span>' )
         self.spans_open.pop( idx )
+
+        if 'offset' == span['type']:
+            if 'count_field' in span:
+                # TODO
+                # If this is an offset, update counts written and restart if
+                # the field says we have some left.
+                pass
+            elif not self.spans_open[0]['offsets']:
+                # Close the parent struct.
+                self.pop_span( 0 )
 
     def format_span( self, span : dict ):
         self.out_file.write(
@@ -120,21 +132,21 @@ class FileParser( object ):
                     logger.debug( 'found static struct %s at offset: %d',
                         key, self.bytes_written )
                     self.add_span_struct(
-                        key, struct['size'], struct['fields'] )
+                        key, struct['fields'] )
                     break
 
                 # Struct that repeats based on contents of other offset.
                 elif self.last_struct == key and \
                 'count_field' in struct and \
                 struct['count_field'] in self.stored_offsets and \
-                self.stored_offsets[struct['count_field']][0] > \
+                self.stored_offsets[struct['count_field']][-1] > \
                 struct['counts_written']:
                     logger.debug( 'struct %s repeats %d more times',
                         key,
-                        self.stored_offsets[struct['count_field']][0] - \
+                        self.stored_offsets[struct['count_field']][-1] - \
                         struct['counts_written'] )
                     self.add_span_struct(
-                        key, struct['size'], struct['fields'] )
+                        key, struct['fields'] )
 
                 # Struct that starts after a certain other ends.
                 elif 'follow' == struct['offset_type'] and \
@@ -142,7 +154,7 @@ class FileParser( object ):
                     logger.debug( 'struct %s follows struct %s',
                         key, self.last_struct )
                     self.add_span_struct(
-                        key, struct['size'], struct['fields'] )
+                        key, struct['fields'] )
                     break
 
                 # Struct that starts at an offset mentioned elsewhere in the
@@ -154,7 +166,7 @@ class FileParser( object ):
                     logger.debug( 'struct %s starts at stored offset: %d',
                         key, self.stored_offsets[struct['offset_field']][0] )
                     self.add_span_struct(
-                        key, struct['size'], struct['fields'] )
+                        key, struct['fields'] )
                     break
 
 
@@ -190,7 +202,10 @@ class FileParser( object ):
             #    self.spans_open[-1]['contents'] )
 
         # Write our byte.
-        self.out_file.write( hex( byte_in ).lstrip( '0x' ).zfill( 2 ) )
+        self.out_file.write(
+            '<span class="{}">{}</span>'.format(
+                'byte' if self.spans_open else 'byte_free',
+                hex( byte_in ).lstrip( '0x' ).zfill( 2 ) ) )
 
     def parse( self ):
 
@@ -213,9 +228,13 @@ class FileParser( object ):
             # the size of the list while working on it.
             for idx in range( len( self.spans_open ) - 1, -1, -1 ):
                 self.spans_open[idx]['written'] += 1
-                if self.spans_open[idx]['written'] >= \
+                if 'offset' == self.spans_open[idx]['type'] and \
+                self.spans_open[idx]['written'] >= \
                 self.spans_open[idx]['size']:
                     self.pop_span( idx )
+                    if not self.spans_open:
+                        # We must've popped the parent struct, too!
+                        break
 
         self.out_file.write( '</div></div></body>' )
 
