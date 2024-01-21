@@ -32,7 +32,7 @@ class FileParser( object ):
         span = {
             'class': class_in,
             'type': type_in,
-            'written': 0
+            'bytes_written': 0
         }
         self.spans_open.append( span )
         self.format_span( span )
@@ -56,6 +56,7 @@ class FileParser( object ):
         span['contents'] = 0
         span['parent'] = struct_class
         span['size'] = kwargs['size']
+        span['counts_written'] = 0
         if 'lsbf' in kwargs:
             span['lsbf'] = kwargs['lsbf']
         if 'store' in kwargs:
@@ -63,17 +64,44 @@ class FileParser( object ):
         if 'count_field' in kwargs:
             span['count_field'] = kwargs['count_field']
 
-    def pop_span( self, idx: int ):
+    def span_key( self, span : dict ):
+
+        ''' Return the full heirarchal path to the given span. '''
+
+        return '{}/{}'.format( span['parent'], span['class'] ) \
+            if 'offset' == span['type'] else span['class']
+
+    def _pop_span( self, idx : int = -1 ):
+
+        ''' Actually remove a span from the list of open spans. Close its
+        parent, too, if it was the last child. '''
 
         logger = logging.getLogger( 'parser.pop_span' )
 
-        # Some convenience handlers.
-        span = self.spans_open[idx]
-        span_key = '{}/{}'.format( span['parent'], span['class'] ) \
-            if 'offset' == span['type'] else span['class']
+        span_key = self.span_key( self.spans_open[idx] )
 
         logger.debug( 'closing span: %s after %d bytes',
-            span_key, span['written'] )
+            span_key, self.spans_open[idx]['bytes_written'] )
+
+        # Actually remove the span.
+        self.spans_open.pop( idx )
+
+        if self.spans_open and \
+        'offsets' in self.spans_open[-1] and \
+        not self.spans_open[-1]['offsets']:
+            # Parent struct has no more fields. Close the parent
+            # struct.
+            self.close_span( -1 )
+
+    def close_span( self, idx: int ):
+    
+        ''' Close or repeat a span as the rules dictate. '''
+
+        logger = logging.getLogger( 'parser.close_span' )
+
+        # Some convenience handlers.
+        span = self.spans_open[idx]
+        span_key = self.span_key( span )
 
         if 'struct' == span['type']:
             self.format_data['structs'][span['class']]['counts_written'] += 1
@@ -89,17 +117,34 @@ class FileParser( object ):
 
         # Write the closing span and pop the span off the open list.
         self.out_file.write( '</span>' )
-        self.spans_open.pop( idx )
 
         if 'offset' == span['type']:
-            if 'count_field' in span:
-                # TODO
-                # If this is an offset, update counts written and restart if
-                # the field says we have some left.
-                pass
-            elif not self.spans_open[0]['offsets']:
-                # Close the parent struct.
-                self.pop_span( 0 )
+            if 'count_field' in span and \
+            span['count_field'] in self.stored_offsets:
+                if self.stored_offsets[span['count_field']][-1] > \
+                span['counts_written']:
+                    # If this is an offset, update counts written and restart
+                    # if the field says we have some left.
+
+                    logger.debug( 'repeating span %s (%d/%d)...',
+                        span['class'],
+                        span['counts_written'],
+                        self.stored_offsets[span['count_field']][-1] )
+
+                    # Refurbish the span to be repeated again.
+                    self.format_span( span )
+                    span['contents'] = 0
+                    span['bytes_written'] = 0
+                    span['counts_written'] += 1
+        
+                else:
+                    self._pop_span()
+
+            else:
+                self._pop_span()
+
+        else:
+            self._pop_span()
 
     def format_span( self, span : dict ):
         self.out_file.write(
@@ -115,85 +160,85 @@ class FileParser( object ):
         for span in self.spans_open:
             self.format_span( span )
 
+    def select_span_struct( self ):
+
+        logger = logging.getLogger( 'parser.select_span.struct' )
+
+        # We're not inside a struct... So find one!
+        for key in self.format_data['structs']:
+            struct = self.format_data['structs'][key]
+
+            # Figure out if a new struct is starting.
+
+            # Struct that starts at a static offset.
+            if 'static' == struct['offset_type'] and \
+            self.bytes_written == struct['offset']:
+                logger.debug( 'found static struct %s at offset: %d',
+                    key, self.bytes_written )
+                self.add_span_struct(
+                    key, struct['fields'] )
+                break
+
+            # Struct that repeats based on contents of other offset.
+            elif self.last_struct == key and \
+            'count_field' in struct and \
+            struct['count_field'] in self.stored_offsets and \
+            self.stored_offsets[struct['count_field']][-1] > \
+            struct['counts_written']:
+                logger.debug( 'struct %s repeats %d more times',
+                    key,
+                    self.stored_offsets[struct['count_field']][-1] - \
+                    struct['counts_written'] )
+                self.add_span_struct(
+                    key, struct['fields'] )
+
+            # Struct that starts after a certain other ends.
+            elif 'follow' == struct['offset_type'] and \
+            self.last_struct == struct['follows']:
+                logger.debug( 'struct %s follows struct %s',
+                    key, self.last_struct )
+                self.add_span_struct(
+                    key, struct['fields'] )
+                break
+
+            # Struct that starts at an offset mentioned elsewhere in the
+            # file.
+            elif 'offset_field' in struct and \
+            struct['offset_field'] in self.stored_offsets and \
+            [x for x in self.stored_offsets[struct['offset_field']] \
+            if x == self.bytes_written]:
+                logger.debug( 'struct %s starts at stored offset: %d',
+                    key, self.stored_offsets[struct['offset_field']][0] )
+                self.add_span_struct(
+                    key, struct['fields'] )
+                break
+
+    def select_span_offset( self, open_struct : dict ):
+        
+        logger = logging.getLogger( 'parser.select_span.offset' )
+
+        assert( 'struct' == open_struct['type'] )
+
+        for key in open_struct['offsets']:
+            offset = open_struct['offsets'][key]
+            if open_struct['bytes_written'] == offset['offset']:
+                self.add_span_offset( key, **offset )
+                logger.debug( 'removing used offset: %s', key )
+
+                # Remove offset now that we've written it.
+                del open_struct['offsets'][key]
+                break
+
     def format_byte( self, byte_in : int ):
 
         logger = logging.getLogger( 'parser.format_byte' )
-
-        if not self.spans_open:
-            # We're not inside a struct... So find one!
-            for key in self.format_data['structs']:
-                struct = self.format_data['structs'][key]
-
-                # Figure out if a new struct is starting.
-
-                # Struct that starts at a static offset.
-                if 'static' == struct['offset_type'] and \
-                self.bytes_written == struct['offset']:
-                    logger.debug( 'found static struct %s at offset: %d',
-                        key, self.bytes_written )
-                    self.add_span_struct(
-                        key, struct['fields'] )
-                    break
-
-                # Struct that repeats based on contents of other offset.
-                elif self.last_struct == key and \
-                'count_field' in struct and \
-                struct['count_field'] in self.stored_offsets and \
-                self.stored_offsets[struct['count_field']][-1] > \
-                struct['counts_written']:
-                    logger.debug( 'struct %s repeats %d more times',
-                        key,
-                        self.stored_offsets[struct['count_field']][-1] - \
-                        struct['counts_written'] )
-                    self.add_span_struct(
-                        key, struct['fields'] )
-
-                # Struct that starts after a certain other ends.
-                elif 'follow' == struct['offset_type'] and \
-                self.last_struct == struct['follows']:
-                    logger.debug( 'struct %s follows struct %s',
-                        key, self.last_struct )
-                    self.add_span_struct(
-                        key, struct['fields'] )
-                    break
-
-                # Struct that starts at an offset mentioned elsewhere in the
-                # file.
-                elif 'offset_field' in struct and \
-                struct['offset_field'] in self.stored_offsets and \
-                [x for x in self.stored_offsets[struct['offset_field']] \
-                if x == self.bytes_written]:
-                    logger.debug( 'struct %s starts at stored offset: %d',
-                        key, self.stored_offsets[struct['offset_field']][0] )
-                    self.add_span_struct(
-                        key, struct['fields'] )
-                    break
-
-
-        if self.spans_open:
-            open_span = self.spans_open[-1]
-
-            # Not an elif, as it can run after a new struct is added earlier
-            # in this method.
-            if 'struct' == open_span['type']:
-                # We're inside a struct but not an offset... so find one!
-                if open_span['offsets']:
-                    for key in open_span['offsets']:
-                        offset = open_span['offsets'][key]
-                        if open_span['written'] == offset['offset']:
-                            self.add_span_offset( key, **offset )
-                            logger.debug( 'removing used offset: %s', key )
-
-                            # Remove offset now that we've written it.
-                            del open_span['offsets'][key]
-                            break
 
         # Add our byte to the open offset contents if there is one.
         if self.spans_open and 'offset' == self.spans_open[-1]['type']:
             if 'lsbf' in self.spans_open[-1] and self.spans_open[-1]['lsbf']:
                 # Shift byte before adding it.
                 self.spans_open[-1]['contents'] |= \
-                    (byte_in << self.spans_open[-1]['written'] * 8)
+                    (byte_in << self.spans_open[-1]['bytes_written'] * 8)
             else:
                 self.spans_open[-1]['contents'] <<= 8
                 self.spans_open[-1]['contents'] |= byte_in
@@ -207,6 +252,11 @@ class FileParser( object ):
                 'byte' if self.spans_open else 'byte_free',
                 hex( byte_in ).lstrip( '0x' ).zfill( 2 ) ) )
 
+        # Update accounting.
+        self.bytes_written += 1
+        for idx in range( len( self.spans_open ) - 1, -1, -1 ):
+            self.spans_open[idx]['bytes_written'] += 1
+
     def parse( self ):
 
         logger = logging.getLogger( 'parser.parse' )
@@ -219,19 +269,24 @@ class FileParser( object ):
             0 != self.bytes_written:
                 self.break_line()
 
+            if not self.spans_open:
+                self.select_span_struct()
+
+            # Not an elif, as it can run after a new struct is added earlier
+            # in this method.
+            if self.spans_open and 'struct' == self.spans_open[-1]['type']:
+                # We're inside a struct but not an offset... so find one!
+                self.select_span_offset( self.spans_open[-1] )
+        
             self.format_byte( file_byte )
            
-            # Update accounting.
-            self.bytes_written += 1
-                
             # Start from the end of the open spans so we don't alter
             # the size of the list while working on it.
             for idx in range( len( self.spans_open ) - 1, -1, -1 ):
-                self.spans_open[idx]['written'] += 1
                 if 'offset' == self.spans_open[idx]['type'] and \
-                self.spans_open[idx]['written'] >= \
+                self.spans_open[idx]['bytes_written'] >= \
                 self.spans_open[idx]['size']:
-                    self.pop_span( idx )
+                    self.close_span( idx )
                     if not self.spans_open:
                         # We must've popped the parent struct, too!
                         break

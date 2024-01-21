@@ -106,6 +106,7 @@ structs:
       follows: bmp_info
       fields:
          color:
+            count_field: bmp_info/ncolors
             offset: 0
             size: 4
             lsbf: True
