@@ -84,6 +84,7 @@ structs:
             offset: 20
             size: 4
             lsbf: True
+            store: True
          hres:
             offset: 24
             size: 4
@@ -110,4 +111,13 @@ structs:
             offset: 0
             size: 4
             lsbf: True
+   bmp_pixels:
+      offset_type: follow
+      follows: bmp_palette
+      fields:
+         px:
+            count_field: bmp_info/img_sz
+            count_mod: -5
+            offset: 0
+            size: 1
 

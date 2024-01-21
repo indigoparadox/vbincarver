@@ -63,6 +63,10 @@ class FileParser( object ):
             span['store'] = kwargs['store']
         if 'count_field' in kwargs:
             span['count_field'] = kwargs['count_field']
+        if 'count_mod' in kwargs:
+            span['count_mod'] = kwargs['count_mod']
+        else:
+            span['count_mod'] = 0
 
     def span_key( self, span : dict ):
 
@@ -121,7 +125,8 @@ class FileParser( object ):
         if 'offset' == span['type']:
             if 'count_field' in span and \
             span['count_field'] in self.stored_offsets:
-                if self.stored_offsets[span['count_field']][-1] > \
+                if self.stored_offsets[span['count_field']][-1] + \
+                span['count_mod'] > \
                 span['counts_written']:
                     # If this is an offset, update counts written and restart
                     # if the field says we have some left.

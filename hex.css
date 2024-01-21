@@ -1,5 +1,7 @@
 
 body {
+   margin: 0;
+   padding: 20px;
    background: black;
    color: white;
 }
@@ -65,5 +67,9 @@ body {
 
 .hex-layout .struct-bmp-palette {
    background: darkred;
+}
+
+.hex-layout .struct-bmp-pixels {
+   background: darkviolet;
 }
 
