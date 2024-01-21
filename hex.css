@@ -1,0 +1,30 @@
+
+body {
+   background: black;
+   color: white;
+}
+
+.hex-layout {
+   font-family: monospace;
+}
+
+.hex-layout .struct {
+   border: 1px solid white;
+}
+
+.hex-layout .offset {
+   border: 1px solid white;
+}
+
+.hex-layout .struct-ico-head {
+   background: navy;
+}
+
+.hex-layout .struct-ico-entry {
+   background: darkgreen;
+}
+
+.hex-layout .struct-bmp-info {
+   background: saddlebrown;
+}
+
