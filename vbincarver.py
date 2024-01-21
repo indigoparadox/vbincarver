@@ -301,11 +301,15 @@ class FileParser( object ):
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '-f', '--format', action='store' )
+    parser.add_argument( '-f', '--format', action='store', required=True,
+        help='Path to the formatting YAML grammar file.' )
 
-    parser.add_argument( '-o', '--out-file', action='store' )
+    parser.add_argument(
+        '-o', '--out-file', action='store', default='output.html',
+        help='Path to the HTML output file to create.' )
 
-    parser.add_argument( 'parse_file', action='store' )
+    parser.add_argument( 'parse_file', action='store',
+        help='Path to the file to dissect.' )
 
     args = parser.parse_args()
 
