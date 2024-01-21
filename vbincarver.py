@@ -46,17 +46,48 @@ class FileParser( object ):
         span = self._add_span( 'struct', class_in, sz )
         span['offsets'] = dict( offsets ) # Copy!
 
-    def add_span_offset( self, class_in : str, sz : int, lsbf : bool ):
+    def add_span_offset( self, class_in : str, **kwargs ):
         
         # Grab the parent struct class.
         assert( 'struct' == self.spans_open[-1]['type'] )
         struct_class = self.spans_open[-1]['class']
 
-        span = self._add_span( 'offset', class_in, sz )
+        span = self._add_span( 'offset', class_in, kwargs['size'] )
         # TODO: String spans?
         span['contents'] = 0
         span['parent'] = struct_class
-        span['lsbf'] = lsbf
+        if 'lsbf' in kwargs:
+            span['lsbf'] = kwargs['lsbf']
+        if 'store' in kwargs:
+            span['store'] = kwargs['store']
+
+    def pop_span( self, idx: int ):
+
+        logger = logging.getLogger( 'parser.pop_span' )
+
+        # Some convenience handlers.
+        span = self.spans_open[idx]
+        span_key = '{}/{}'.format( span['parent'], span['class'] ) \
+            if 'offset' == span['type'] else span['class']
+
+        logger.debug( 'closing span: %s after %d bytes',
+            span_key, span['written'] )
+
+        if 'struct' == span['type']:
+            self.format_data['structs'][span['class']]['counts_written'] += 1
+
+        # Store offset contents for later if requested.
+        if 'store' in span.keys() and span['store']:
+            logger.debug( 'storing offset %s/%s value %d...',
+                span['parent'], span['class'], span['contents'] )
+            if span_key in self.stored_offsets:
+                self.stored_offsets[span_key].append( span['contents'] )
+            else:
+                self.stored_offsets[span_key] = [span['contents']]
+
+        # Write the closing span and pop the span off the open list.
+        self.out_file.write( '</span>' )
+        self.spans_open.pop( idx )
 
     def format_span( self, span : dict ):
         self.out_file.write(
@@ -92,6 +123,19 @@ class FileParser( object ):
                         key, struct['size'], struct['fields'] )
                     break
 
+                # Struct that repeats based on contents of other offset.
+                elif self.last_struct == key and \
+                'count_field' in struct and \
+                struct['count_field'] in self.stored_offsets and \
+                self.stored_offsets[struct['count_field']][0] > \
+                struct['counts_written']:
+                    logger.debug( 'struct %s repeats %d more times',
+                        key,
+                        self.stored_offsets[struct['count_field']][0] - \
+                        struct['counts_written'] )
+                    self.add_span_struct(
+                        key, struct['size'], struct['fields'] )
+
                 # Struct that starts after a certain other ends.
                 elif 'follow' == struct['offset_type'] and \
                 self.last_struct == struct['follows']:
@@ -101,8 +145,18 @@ class FileParser( object ):
                         key, struct['size'], struct['fields'] )
                     break
 
-                # TODO: Struct that starts at an offset mentioned elsewhere
-                # in the file.
+                # Struct that starts at an offset mentioned elsewhere in the
+                # file.
+                elif 'offset_field' in struct and \
+                struct['offset_field'] in self.stored_offsets and \
+                [x for x in self.stored_offsets[struct['offset_field']] \
+                if x == self.bytes_written]:
+                    logger.debug( 'struct %s starts at stored offset: %d',
+                        key, self.stored_offsets[struct['offset_field']][0] )
+                    self.add_span_struct(
+                        key, struct['size'], struct['fields'] )
+                    break
+
 
         if self.spans_open:
             open_span = self.spans_open[-1]
@@ -115,8 +169,7 @@ class FileParser( object ):
                     for key in open_span['offsets']:
                         offset = open_span['offsets'][key]
                         if open_span['written'] == offset['offset']:
-                            self.add_span_offset(
-                                key, offset['size'], offset['lsbf'] )
+                            self.add_span_offset( key, **offset )
                             logger.debug( 'removing used offset: %s', key )
 
                             # Remove offset now that we've written it.
@@ -125,16 +178,16 @@ class FileParser( object ):
 
         # Add our byte to the open offset contents if there is one.
         if self.spans_open and 'offset' == self.spans_open[-1]['type']:
-            if self.spans_open[-1]['lsbf']:
+            if 'lsbf' in self.spans_open[-1] and self.spans_open[-1]['lsbf']:
                 # Shift byte before adding it.
                 self.spans_open[-1]['contents'] |= \
                     (byte_in << self.spans_open[-1]['written'] * 8)
             else:
                 self.spans_open[-1]['contents'] <<= 8
                 self.spans_open[-1]['contents'] |= byte_in
-            logger.debug( 'current offset %s/%s contents: 0x%08x',
-                self.spans_open[-1]['parent'], self.spans_open[-1]['class'],
-                self.spans_open[-1]['contents'] )
+            #logger.debug( 'current offset %s/%s contents: 0x%08x',
+            #    self.spans_open[-1]['parent'], self.spans_open[-1]['class'],
+            #    self.spans_open[-1]['contents'] )
 
         # Write our byte.
         self.out_file.write( hex( byte_in ).lstrip( '0x' ).zfill( 2 ) )
@@ -162,14 +215,7 @@ class FileParser( object ):
                 self.spans_open[idx]['written'] += 1
                 if self.spans_open[idx]['written'] >= \
                 self.spans_open[idx]['size']:
-                    logger.debug( 'closing span: %s after %d bytes',
-                        self.spans_open[idx]['parent'] + '/' +
-                            self.spans_open[idx]['class']
-                            if 'offset' == self.spans_open[idx]['type'] \
-                            else self.spans_open[idx]['class'],
-                        self.spans_open[idx]['written'] )
-                    self.out_file.write( '</span>' )
-                    del self.spans_open[idx]
+                    self.pop_span( idx )
 
         self.out_file.write( '</div></div></body>' )
 
@@ -189,6 +235,8 @@ def main():
     format_data = None
     with open( args.format, 'r' ) as format_file:
         format_data = yaml.load( format_file, Loader=yaml.Loader )
+        for key in format_data['structs']:
+            format_data['structs'][key]['counts_written'] = 0
 
     with open( args.out_file, 'w' ) as out_file:
         with open( args.parse_file, 'rb' ) as parse_file:
