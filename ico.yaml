@@ -1,0 +1,32 @@
+---
+structs:
+   ico_head:
+      offset: 0
+      offset_type: static
+      count: 1
+      size: 6
+      fields:
+         reserved1:
+            offset: 0
+            size: 2
+            lsbf: True
+         image_type:
+            offset: 2
+            size: 2
+            lsbf: True
+         ico_num_images:
+            offset: 4
+            size: 2
+            store: True
+            lsbf: True
+   ico_entry:
+      count: ico_head/ico_num_images
+      count_type: field
+      offset_type: follow
+      follows: ico_head
+      size: 16
+      fields:
+         width:
+            offset: 0
+            size: 1
+            lsbf: True
