@@ -127,7 +127,7 @@ class FileParser( object ):
             span['count_field'] in self.stored_offsets:
                 if self.stored_offsets[span['count_field']][-1] + \
                 span['count_mod'] > \
-                span['counts_written']:
+                span['counts_written'] + 1:
                     # If this is an offset, update counts written and restart
                     # if the field says we have some left.
 
