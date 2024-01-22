@@ -13,23 +13,41 @@ class FileParserStorage( dict ):
     def has_struct( self, key : str ):
         return key in self
 
-    def get_offset( self, key : tuple ):
-        try:
-            return self[key[0]]['offsets'][key[1]]
-        except:
-            return -1
+    def get_offset( self, key : tuple, sid : int ):
+        return self[key[0]][sid]['offsets'][key[1]]
 
-    def store_offset( self, struct_key : str, offset_key : str, val : int ):
-        logger = logging.getLogger( 'storage.store' )
-        logger.debug( 'storing offset %s/%s value %d...',
-            struct_key, offset_key, val )
+    def get_next_sid( self, struct_key : str ):
+        
+        ''' Get next available index/ID for a struct of the given type. '''
+
+        logger = logging.getLogger( 'storage.next' )
+
         if struct_key in self:
-            if offset_key in self[struct_key]['offsets']:
-                self[struct_key]['offsets'][offset_key].append( val )
-            else:
-                self[struct_key]['offsets'][offset_key] = [val]
+            logger.debug( 'next available sid for %s: %d',
+                struct_key, len( self[struct_key] ) )
+            return len( self[struct_key] )
         else:
-            self[struct_key] = {'offsets': {offset_key: [val]}}
+            logger.debug( 'next available sid for %s: 0', struct_key )
+            return 0
+
+    def store_offset( self, skey : str, sid : int, okey : str, val : int ):
+        logger = logging.getLogger( 'storage.store' )
+        logger.debug( 'storing offset %s[%d]/%s value %d...',
+            skey, sid, okey, val )
+        if skey in self:
+            #print( self[skey] )
+            if sid < len( self[skey] ):
+                if okey in self[skey][sid]['offsets']:
+                    self[skey][sid]['offsets'][okey].append( val )
+                else:
+                    self[skey][sid]['offsets'][okey] = [val]
+            else:
+                assert( sid == len( self[skey] ) )
+                self[skey].append( {'offsets': {okey: [val]}} )
+                
+        else:
+            assert( 0 == sid )
+            self[skey] = [{'offsets': {okey: [val]}}]
 
 class FileParser( object ):
 
@@ -69,8 +87,9 @@ class FileParser( object ):
         self.last_struct = class_in
         span = self._add_span( 'struct', class_in )
         span['offsets'] = dict( offsets ) # Copy!
+        span['sid'] = self.stored_offsets.get_next_sid( class_in )
 
-    def add_span_offset( self, class_in : str, **kwargs ):
+    def add_span_offset( self, class_in : str, sid : str, **kwargs ):
         
         # Grab the parent struct class.
         assert( 'struct' == self.spans_open[-1]['type'] )
@@ -80,6 +99,7 @@ class FileParser( object ):
         # TODO: String spans?
         span['contents'] = 0
         span['parent'] = struct_class
+        span['sid'] = sid
         span['size'] = kwargs['size']
         span['counts_written'] = 0
         if 'lsbf' in kwargs:
@@ -139,11 +159,13 @@ class FileParser( object ):
         if 'offset' == span['type']:
             # Store offset contents for later if requested.
             self.stored_offsets.store_offset(
-                span['parent'], span['class'], span['contents'] )
+                span['parent'], 0, span['class'], span['contents'] )
 
+            # TODO: We use -1 here to get last relevant field but...
+            # maybe that's OK?
             if 'count_field' in span and \
-            self.stored_offsets.get_offset( span['count_field'] )[-1] \
-            + span['count_mod'] > \
+            self.stored_offsets.get_offset(
+            span['count_field'], -1 )[-1] + span['count_mod'] > \
             span['counts_written'] + 1:
                 # If this is an offset, update counts written and restart
                 # if the field says we have some left.
@@ -152,7 +174,7 @@ class FileParser( object ):
                     span['class'],
                     span['counts_written'],
                     self.stored_offsets.get_offset(
-                        span['count_field'] )[-1] )
+                        span['count_field'], -1 )[-1] )
 
                 # Refurbish the span to be repeated again.
                 self.format_span( span )
@@ -199,14 +221,17 @@ class FileParser( object ):
                 break
 
             # Struct that repeats based on contents of other offset.
+            # TODO: Using -1 for struct index here but maybe add a way to
+            # specify which struct to look in?
             elif self.last_struct == key and \
             'count_field' in struct and \
-            self.stored_offsets.get_offset( struct['count_field'] )[-1] > \
+            self.stored_offsets.get_offset( struct['count_field'], -1 )[-1] > \
             struct['counts_written']:
                 logger.debug( 'struct %s repeats %d more times',
                     key,
                     self.stored_offsets.get_offset(
-                    struct['count_field'] )[-1] - struct['counts_written'] )
+                        struct['count_field'], 0 )[-1] - \
+                        struct['counts_written'] )
                 self.add_span_struct( key, struct['fields'] )
 
             # Struct that starts after a certain other ends.
@@ -219,12 +244,14 @@ class FileParser( object ):
 
             # Struct that starts at an offset mentioned elsewhere in the
             # file.
+            # TODO: Using -1 for struct index here but maybe add a way to
+            # specify which struct to look in?
             elif 'offset_field' in struct and \
             [x for x in self.stored_offsets.get_offset(
-            struct['offset_field'] ) if x == self.bytes_written]:
+            struct['offset_field'], -1 ) if x == self.bytes_written]:
                 logger.debug( 'struct %s starts at stored offset: %d',
                     key, self.stored_offsets.get_offset(
-                    struct['offset_field'] )[0] )
+                    struct['offset_field'], 0 )[0] )
                 self.add_span_struct( key, struct['fields'] )
                 break
 
@@ -236,8 +263,10 @@ class FileParser( object ):
 
         for key in open_struct['offsets']:
             offset = open_struct['offsets'][key]
+
+            # Static offset.
             if open_struct['bytes_written'] == offset['offset']:
-                self.add_span_offset( key, **offset )
+                self.add_span_offset( key, open_struct['sid'], **offset )
                 logger.debug( 'removing used offset: %s', key )
 
                 # Remove offset now that we've written it.
