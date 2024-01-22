@@ -16,7 +16,6 @@ structs:
          ico_num_images:
             offset: 4
             size: 2
-            store: True
             lsbf: True
    ico_entry:
       count_field: ico_head/ico_num_images
@@ -51,7 +50,6 @@ structs:
             offset: 12
             size: 4
             lsbf: True
-            store: True
    bmp_info:
       offset_type: stored
       offset_field: ico_entry/img_offset
@@ -84,7 +82,6 @@ structs:
             offset: 20
             size: 4
             lsbf: True
-            store: True
          hres:
             offset: 24
             size: 4
@@ -97,7 +94,6 @@ structs:
             offset: 32
             size: 4
             lsbf: True
-            store: True
          nimp_colors:
             offset: 36
             size: 4
