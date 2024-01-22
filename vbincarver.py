@@ -7,29 +7,32 @@ import pprint
 
 COLUMN_LEN = 20
 
-class FileParserStorage( dict ):
-    pass
+class FileParserStorage( object ):
+
+    def __init__( self ):
+        self.field_storage = {}
 
     def has_struct( self, key : str ):
         return key in self
 
-    def get_offset( self, key : tuple ):
+    def get_field( self, key : tuple ):
         try:
-            return self[key[0]]['offsets'][key[1]]
+            return self.field_storage[key[0]]['fields'][key[1]]
         except:
             return -1
 
-    def store_offset( self, struct_key : str, offset_key : str, val : int ):
+    def store_field( self, struct_key : str, field_key : str, val : int ):
         logger = logging.getLogger( 'storage.store' )
-        logger.debug( 'storing offset %s/%s value %d...',
-            struct_key, offset_key, val )
-        if struct_key in self:
-            if offset_key in self[struct_key]['offsets']:
-                self[struct_key]['offsets'][offset_key].append( val )
+        logger.debug( 'storing field %s/%s value %d...',
+            struct_key, field_key, val )
+        if struct_key in self.field_storage:
+            if field_key in self.field_storage[struct_key]['fields']:
+                self.field_storage[struct_key]['fields'][field_key].append(
+                    val )
             else:
-                self[struct_key]['offsets'][offset_key] = [val]
+                self.field_storage[struct_key]['fields'][field_key] = [val]
         else:
-            self[struct_key] = {'offsets': {offset_key: [val]}}
+            self.field_storage[struct_key] = {'fields': {field_key: [val]}}
 
 class FileParser( object ):
 
@@ -41,7 +44,7 @@ class FileParser( object ):
         self.out_file = out_file
         self.in_file = in_file
         self.format_data = format_data
-        self.stored_offsets = FileParserStorage()
+        self.stored_fields = FileParserStorage()
 
     def write_header( self ):
 
@@ -63,20 +66,20 @@ class FileParser( object ):
         self.format_span( span )
         return span
 
-    def add_span_struct( self, class_in : str, offsets : dict ):
+    def add_span_struct( self, class_in : str, fields : dict ):
         for span in self.spans_open:
             assert( 'struct' != span['class'] )
         self.last_struct = class_in
         span = self._add_span( 'struct', class_in )
-        span['offsets'] = dict( offsets ) # Copy!
+        span['fields'] = dict( fields ) # Copy!
 
-    def add_span_offset( self, class_in : str, **kwargs ):
+    def add_span_field( self, class_in : str, **kwargs ):
         
         # Grab the parent struct class.
         assert( 'struct' == self.spans_open[-1]['type'] )
         struct_class = self.spans_open[-1]['class']
 
-        span = self._add_span( 'offset', class_in )
+        span = self._add_span( 'field', class_in )
         # TODO: String spans?
         span['contents'] = 0
         span['parent'] = struct_class
@@ -96,7 +99,7 @@ class FileParser( object ):
         ''' Return the full heirarchal path to the given span. '''
 
         return '{}/{}'.format( span['parent'], span['class'] ) \
-            if 'offset' == span['type'] else span['class']
+            if 'field' == span['type'] else span['class']
 
     def _pop_span( self, idx : int = -1 ):
 
@@ -114,8 +117,8 @@ class FileParser( object ):
         self.spans_open.pop( idx )
 
         if self.spans_open and \
-        'offsets' in self.spans_open[-1] and \
-        not self.spans_open[-1]['offsets']:
+        'fields' in self.spans_open[-1] and \
+        not self.spans_open[-1]['fields']:
             # Parent struct has no more fields. Close the parent
             # struct.
             self.close_span( -1 )
@@ -136,22 +139,22 @@ class FileParser( object ):
         # Write the closing span and pop the span off the open list.
         self.out_file.write( '</span>' )
 
-        if 'offset' == span['type']:
-            # Store offset contents for later if requested.
-            self.stored_offsets.store_offset(
+        if 'field' == span['type']:
+            # Store field contents for later if requested.
+            self.stored_fields.store_field(
                 span['parent'], span['class'], span['contents'] )
 
             if 'count_field' in span and \
-            self.stored_offsets.get_offset( span['count_field'] )[-1] \
+            self.stored_fields.get_field( span['count_field'] )[-1] \
             + span['count_mod'] > \
             span['counts_written'] + 1:
-                # If this is an offset, update counts written and restart
+                # If this is a field, update counts written and restart
                 # if the field says we have some left.
 
                 logger.debug( 'repeating span %s (%d/%d)...',
                     span['class'],
                     span['counts_written'],
-                    self.stored_offsets.get_offset(
+                    self.stored_fields.get_field(
                         span['count_field'] )[-1] )
 
                 # Refurbish the span to be repeated again.
@@ -190,7 +193,7 @@ class FileParser( object ):
 
             # Figure out if a new struct is starting.
 
-            # Struct that starts at a static offset.
+            # Struct that starts at a static field.
             if 'static' == struct['offset_type'] and \
             self.bytes_written == struct['offset']:
                 logger.debug( 'found static struct %s at offset: %d',
@@ -198,14 +201,14 @@ class FileParser( object ):
                 self.add_span_struct( key, struct['fields'] )
                 break
 
-            # Struct that repeats based on contents of other offset.
+            # Struct that repeats based on contents of other field.
             elif self.last_struct == key and \
             'count_field' in struct and \
-            self.stored_offsets.get_offset( struct['count_field'] )[-1] > \
+            self.stored_fields.get_field( struct['count_field'] )[-1] > \
             struct['counts_written']:
                 logger.debug( 'struct %s repeats %d more times',
                     key,
-                    self.stored_offsets.get_offset(
+                    self.stored_fields.get_field(
                     struct['count_field'] )[-1] - struct['counts_written'] )
                 self.add_span_struct( key, struct['fields'] )
 
@@ -217,39 +220,39 @@ class FileParser( object ):
                 self.add_span_struct( key, struct['fields'] )
                 break
 
-            # Struct that starts at an offset mentioned elsewhere in the
+            # Struct that starts at a field mentioned elsewhere in the
             # file.
             elif 'offset_field' in struct and \
-            [x for x in self.stored_offsets.get_offset(
+            [x for x in self.stored_fields.get_field(
             struct['offset_field'] ) if x == self.bytes_written]:
-                logger.debug( 'struct %s starts at stored offset: %d',
-                    key, self.stored_offsets.get_offset(
+                logger.debug( 'struct %s starts at stored field: %d',
+                    key, self.stored_fields.get_field(
                     struct['offset_field'] )[0] )
                 self.add_span_struct( key, struct['fields'] )
                 break
 
-    def select_span_offset( self, open_struct : dict ):
+    def select_span_field( self, open_struct : dict ):
         
-        logger = logging.getLogger( 'parser.select_span.offset' )
+        logger = logging.getLogger( 'parser.select_span.field' )
 
         assert( 'struct' == open_struct['type'] )
 
-        for key in open_struct['offsets']:
-            offset = open_struct['offsets'][key]
-            if open_struct['bytes_written'] == offset['offset']:
-                self.add_span_offset( key, **offset )
-                logger.debug( 'removing used offset: %s', key )
+        for key in open_struct['fields']:
+            field = open_struct['fields'][key]
+            if open_struct['bytes_written'] == field['offset']:
+                self.add_span_field( key, **field )
+                logger.debug( 'removing used field: %s', key )
 
-                # Remove offset now that we've written it.
-                del open_struct['offsets'][key]
+                # Remove field now that we've written it.
+                del open_struct['fields'][key]
                 break
 
     def format_byte( self, byte_in : int ):
 
         logger = logging.getLogger( 'parser.format_byte' )
 
-        # Add our byte to the open offset contents if there is one.
-        if self.spans_open and 'offset' == self.spans_open[-1]['type']:
+        # Add our byte to the open field contents if there is one.
+        if self.spans_open and 'field' == self.spans_open[-1]['type']:
             if 'lsbf' in self.spans_open[-1] and self.spans_open[-1]['lsbf']:
                 # Shift byte before adding it.
                 self.spans_open[-1]['contents'] |= \
@@ -257,7 +260,7 @@ class FileParser( object ):
             else:
                 self.spans_open[-1]['contents'] <<= 8
                 self.spans_open[-1]['contents'] |= byte_in
-            #logger.debug( 'current offset %s/%s contents: 0x%08x',
+            #logger.debug( 'current field %s/%s contents: 0x%08x',
             #    self.spans_open[-1]['parent'], self.spans_open[-1]['class'],
             #    self.spans_open[-1]['contents'] )
 
@@ -290,15 +293,15 @@ class FileParser( object ):
             # Not an elif, as it can run after a new struct is added earlier
             # in this method.
             if self.spans_open and 'struct' == self.spans_open[-1]['type']:
-                # We're inside a struct but not an offset... so find one!
-                self.select_span_offset( self.spans_open[-1] )
+                # We're inside a struct but not a field... so find one!
+                self.select_span_field( self.spans_open[-1] )
         
             self.format_byte( file_byte )
            
             # Start from the end of the open spans so we don't alter
             # the size of the list while working on it.
             for idx in range( len( self.spans_open ) - 1, -1, -1 ):
-                if 'offset' == self.spans_open[idx]['type'] and \
+                if 'field' == self.spans_open[idx]['type'] and \
                 self.spans_open[idx]['bytes_written'] >= \
                 self.spans_open[idx]['size']:
                     self.close_span( idx )
@@ -343,7 +346,7 @@ def main():
                 parse_file.read(), out_file, format_data )
             file_parser.parse()
             printer = pprint.PrettyPrinter()
-            printer.pprint( file_parser.stored_offsets )
+            printer.pprint( file_parser.stored_fields.field_storage )
 
 if '__main__' == __name__:
     main()

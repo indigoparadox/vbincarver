@@ -40,13 +40,13 @@ body {
 
 /* Offsets */
 
-.hex-layout .offset {
+.hex-layout .field {
    border-right: 1px solid white;
    /* padding: 2px 2px 2px 2px; */
    margin: 0 -1px 0 0;
 }
 
-.hex-layout .offset:last-child {
+.hex-layout .field:last-child {
    border-right: none;
    margin: 0;
 }
