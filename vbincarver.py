@@ -12,6 +12,7 @@ class FileParserStorage( object ):
     def __init__( self ):
         self.field_storage = {}
         self.byte_storage = {}
+        self.sz_storage = {}
 
     def has_struct( self, key : str ):
         return key in self
@@ -36,26 +37,23 @@ class FileParserStorage( object ):
             self.field_storage[struct_key] = {'fields': {field_key: [val]}}
 
     def store_offset(
-        self, offset : int, struct : str, field : str, val : int, sid: int
+        self, offset : int, sz : int, struct : str, field : str, val : int, 
+        sid: int
     ):
-        self.byte_storage[offset] = \
-            {'struct': struct, 'sid': sid, 'field': field, 'value': val}
+        self.byte_storage[offset] = {'struct': struct, 'size': sz,
+            'sid': sid, 'field': field, 'value': val}
 
 class FileParser( object ):
 
-    def __init__( self, in_file, out_file, format_data : dict ):
+    def __init__( self, in_file, format_data : dict ):
 
         self.bytes_written = 0
         self.last_struct = ''
         self.spans_open = []
-        self.out_file = out_file
         self.in_file = in_file
         self.format_data = format_data
         self.storage = FileParserStorage()
-
-    def write_header( self ):
-
-        self.out_file.write( '<div class="hex-layout">' )
+        self.buffer = []
 
     def _add_span( self, type_in : str, class_in : str ):
         logger = logging.getLogger( 'parser.add_span' )
@@ -67,7 +65,7 @@ class FileParser( object ):
             'bytes_written': 0
         }
         self.spans_open.append( span )
-        self.format_span( span )
+        #self.format_span( span )
         return span
 
     def add_span_struct( self, class_in : str, fields : dict ):
@@ -145,7 +143,7 @@ class FileParser( object ):
             self.format_data['structs'][span['class']]['counts_written'] += 1
 
         # Write the closing span and pop the span off the open list.
-        self.out_file.write( '</span>' )
+        #self.out_file.write( '</span>' )
 
         if 'field' == span['type']:
             # Store field contents for later if requested.
@@ -166,7 +164,7 @@ class FileParser( object ):
                         span['count_field'] )[-1] )
 
                 # Refurbish the span to be repeated again.
-                self.format_span( span )
+                #self.format_span( span )
                 span['contents'] = 0
                 span['bytes_written'] = 0
                 span['counts_written'] += 1
@@ -176,27 +174,6 @@ class FileParser( object ):
 
         else:
             self._pop_span()
-
-    def format_span( self, span : dict ):
-
-        sid = ''
-        if 'struct' == span['type']:
-            sid = ' hex-struct-' + span['class'].replace( '_', '-' ) \
-            + '-' + str(
-                self.format_data['structs'][span['class']]['counts_written'] )
-
-        self.out_file.write( '<span class="hex-{} hex-{}-{}{}">'.format(
-            span['type'], span['type'],
-            span['class'].replace( '_', '-' ),
-            sid ) )
-
-    def break_line( self ):
-
-        for span in self.spans_open:
-            self.out_file.write( '</span>' )
-        self.out_file.write( '</div><div class="hex-line">' )
-        for span in self.spans_open:
-            self.format_span( span )
 
     def select_span_struct( self ):
 
@@ -280,10 +257,17 @@ class FileParser( object ):
             #    self.spans_open[-1]['contents'] )
 
         # Write our byte.
-        self.out_file.write(
-            '<span class="{}">{}</span>'.format(
-                'byte' if self.spans_open else 'byte_free',
-                hex( byte_in ).lstrip( '0x' ).zfill( 2 ) ) )
+        self.buffer.append( (
+            byte_in,
+            self.spans_open[0]['class'] \
+                if 0 < len( self.spans_open ) else None,
+            self.format_data\
+                ['structs'][self.spans_open[0]['class']]['counts_written'] \
+                    if 0 < len( self.spans_open ) else -1,
+            self.spans_open[1]['class'] \
+                if 1 < len( self.spans_open ) else None,
+            self.spans_open[-1]['counts_written'] \
+                if 1 < len( self.spans_open ) else None ) )
 
         # Update accounting.
         self.bytes_written += 1
@@ -294,13 +278,7 @@ class FileParser( object ):
 
         logger = logging.getLogger( 'parser.parse' )
     
-        self.write_header()
-        self.out_file.write( '<div class="hex-line">' )
         for file_byte in self.in_file:
-            # Break up lines.
-            if 0 == self.bytes_written % COLUMN_LEN and \
-            0 != self.bytes_written:
-                self.break_line()
 
             if not self.spans_open:
                 self.select_span_struct()
@@ -323,6 +301,7 @@ class FileParser( object ):
                     if self.spans_open[idx]['summarize']:
                         self.storage.store_offset(
                             self.bytes_written - self.spans_open[idx]['size'],
+                            self.spans_open[idx]['size'],
                             self.spans_open[-2]['class'] \
                                 if len( self.spans_open ) > 1 else None,
                             self.spans_open[idx]['class'],
@@ -335,6 +314,109 @@ class FileParser( object ):
                     if not self.spans_open:
                         # We must've popped the parent struct, too!
                         break
+
+class HexFormatter( object ):
+
+    def __init__( self, out_file, parser : FileParser ):
+    
+        self.out_file = out_file
+        self.parser = parser
+        self.bytes_written = 0
+        self.last_struct = None
+        self.last_struct_id = None
+        self.last_field = None
+        self.last_field_id = None
+
+    def break_line( self ):
+
+        if self.last_struct:
+            self.close_span()
+        if self.last_field:
+            self.close_span()
+
+        self.out_file.write( '</div>\n <div class="hex-line">\n' )
+
+        if self.last_struct:
+            self.open_span( 'struct', self.last_struct, self.last_struct_id )
+        if self.last_field:
+            self.open_span( 'field', self.last_field )
+
+    def close_span( self, ind : int = 0 ):
+        for i in range( 0, ind ):
+            self.out_file.write( ' ' )
+        self.out_file.write( '</span>\n' )
+
+    def open_span(
+        self, type_in : str, class_in : str, sid_in : int = 0, ind : int = 0
+    ):
+
+        sid = ''
+        if 'struct' == type_in:
+            sid = ' hex-struct-{}-{}'.format(
+                class_in.replace( '_', '-' ), str( sid_in ) )
+
+        for i in range( 0, ind ):
+            self.out_file.write( ' ' )
+
+        self.out_file.write( '<span class="hex-{} hex-{}-{}{}">\n'.format(
+            type_in, type_in, class_in.replace( '_', '-' ), sid ) )
+
+    def write_header( self ):
+
+        self.out_file.write( '<!DOCTYPE html>\n<html>\n<head>\n' )
+        self.out_file.write( '<link rel="stylesheet" href="hex.css" />\n' )
+        self.out_file.write( '<script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>\n' )
+        self.out_file.write( '<script src="hex.js"></script>\n' )
+        self.out_file.write( '</head>\n<body>\n' )
+
+    def write_footer( self ):
+        pass
+
+    def write_layout( self ):
+
+        self.out_file.write( '<div class="hex-layout">\n' )
+        self.out_file.write( ' <div class="hex-line">\n' )
+
+        for buf_tup in self.parser.buffer:
+            # Break up lines.
+            if 0 == self.bytes_written % COLUMN_LEN and \
+            0 != self.bytes_written:
+                self.break_line()
+
+            # Close last struct if it was open.
+            if (self.last_struct != buf_tup[1] or \
+            self.last_struct_id != buf_tup[2]) and \
+            None != self.last_struct:
+                self.close_span( ind=2 )
+
+            # Close last field if it was open.
+            if (self.last_field != buf_tup[3] or \
+            self.last_field_id != buf_tup[4]) and \
+            None != self.last_field:
+                self.close_span( ind=3 )
+
+            # See if we can open a new struct.
+            if (self.last_struct != buf_tup[1] or \
+            self.last_struct_id != buf_tup[2]) and \
+            buf_tup[1]:
+                self.open_span( 'struct', buf_tup[1], buf_tup[2], ind=2 )
+
+            # See if we can open a new field.
+            if (self.last_field != buf_tup[3] or \
+            self.last_field_id != buf_tup[4]) and \
+            buf_tup[3]:
+                self.open_span( 'field', buf_tup[3], ind=3 )
+
+            self.out_file.write(
+                '    <span class="{}">{}</span>\n'.format(
+                    'byte' if buf_tup[1] else 'byte_free',
+                    hex( buf_tup[0] ).lstrip( '0x' ).zfill( 2 ) ) )
+
+            self.bytes_written += 1
+            self.last_struct = buf_tup[1]
+            self.last_struct_id = buf_tup[2]
+            self.last_field = buf_tup[3]
+            self.last_field_id = buf_tup[4]
 
         self.out_file.write( '</div></div>' )
 
@@ -369,19 +451,16 @@ def main():
 
     with open( args.out_file, 'w' ) as out_file:
         with open( args.parse_file, 'rb' ) as parse_file:
-            file_parser = FileParser(
-                parse_file.read(), out_file, format_data )
-
-            out_file.write( '<!DOCTYPE html><html><head>' )
-            out_file.write( '<link rel="stylesheet" href="hex.css" />' )
-            out_file.write( '<script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>' )
-            out_file.write( '<script src="hex.js"></script>' )
-            out_file.write( '</head><body>' )
+            file_parser = FileParser( parse_file.read(), format_data )
 
             file_parser.parse()
+            formatter = HexFormatter( out_file, file_parser )
+            formatter.write_header()
+            formatter.write_layout()
+            formatter.write_footer()
 
             printer = pprint.PrettyPrinter()
-            printer.pprint( file_parser.storage.byte_storage )
+            printer.pprint( file_parser.buffer )
 
             out_file.write( '<div class="hex-fields"><div>' )
             last_struct = ''
@@ -397,10 +476,29 @@ def main():
                     sid = scls + '-' + \
                         str( file_parser.storage.byte_storage[key]['sid'] )
 
+                    # Start a new struct.
                     out_file.write( '<div class="spacer"></div>' )
                     out_file.write(
                         '</div><div class="hex-struct {} {}">'.format(
                             scls, sid ) )
+                    out_file.write(
+                        '<h3 class="hex-struct-title">{}</h3>'.format(
+                            file_parser.storage.byte_storage[key]['struct']
+                                ) )
+                    out_file.write(
+                        '<div class="hex-struct-sz">({} bytes)</div>'.format(
+    
+    # Sum sizes of all fields in the struct.
+    sum( [file_parser.storage.byte_storage[x]['size'] \
+        for x in file_parser.storage.byte_storage \
+            if file_parser.storage.byte_storage[x]['struct'] == \
+                file_parser.storage.byte_storage[key]['struct'] and \
+            file_parser.storage.byte_storage[x]['sid'] == \
+                file_parser.storage.byte_storage[key]['sid']] )
+
+                                ) )
+
+                # Write the field.
 
                 hid = file_parser.storage.byte_storage[key]['field']\
                     .replace( '_', '-' )
@@ -410,10 +508,14 @@ def main():
                     '<span class="hex-field hex-field-' + \
                     hid + '">'
                     '<span class="hex-label">' + \
-                    file_parser.storage.byte_storage[key]['field'] + \
-                    '</span><span class="hex-contents">' + \
+                        file_parser.storage.byte_storage[key]['field'] + \
+                        '</span>' + \
+                    '<span class="hex-sz">(' + \
+                    str( file_parser.storage.byte_storage[key]['size'] ) + \
+                        ' bytes)</span>' + \
+                    '<span class="hex-contents">' + \
                     str( file_parser.storage.byte_storage[key]['value'] ) + \
-                    '</span></span>' )
+                        '</span></span>' )
 
                 last_struct = file_parser.storage.byte_storage[key]['struct']
                 last_sid = file_parser.storage.byte_storage[key]['sid']

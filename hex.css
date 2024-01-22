@@ -18,11 +18,11 @@ body {
 }
 
 .hex-layout .hex-line .byte_free {
-   padding: 2px 4px;
+   padding: 2px 0 2px 8px;
 }
 
 .hex-layout .hex-line .byte {
-   padding: 2px 4px;
+   padding: 2px 0 2px 8px;
 }
 
 /* Offsets */
@@ -39,6 +39,16 @@ body {
 }
 
 /* Field Labels */
+
+.hex-struct-title {
+   margin: 0 10px 10px 0;
+   padding: 0;
+   float: left;
+}
+
+.hex-struct-sz {
+   float: right;
+}
 
 .hex-fields {
    font-size: 0.7em;
@@ -59,6 +69,11 @@ body {
 .hex-fields .hex-label {
    font-weight: bold;
    margin-right: 5px;
+   float: left;
+}
+
+.hex-fields .hex-sz {
+   margin-right: 10px;
    float: left;
 }
 
