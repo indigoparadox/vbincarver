@@ -11,6 +11,7 @@ class FileParserStorage( object ):
 
     def __init__( self ):
         self.field_storage = {}
+        self.byte_storage = {}
 
     def has_struct( self, key : str ):
         return key in self
@@ -34,6 +35,12 @@ class FileParserStorage( object ):
         else:
             self.field_storage[struct_key] = {'fields': {field_key: [val]}}
 
+    def store_offset(
+        self, offset : int, struct : str, field : str, val : int
+    ):
+        self.byte_storage[offset] = \
+            {'struct': struct, 'field': field, 'value': val}
+
 class FileParser( object ):
 
     def __init__( self, in_file, out_file, format_data : dict ):
@@ -44,7 +51,7 @@ class FileParser( object ):
         self.out_file = out_file
         self.in_file = in_file
         self.format_data = format_data
-        self.stored_fields = FileParserStorage()
+        self.storage = FileParserStorage()
 
     def write_header( self ):
 
@@ -141,11 +148,11 @@ class FileParser( object ):
 
         if 'field' == span['type']:
             # Store field contents for later if requested.
-            self.stored_fields.store_field(
+            self.storage.store_field(
                 span['parent'], span['class'], span['contents'] )
 
             if 'count_field' in span and \
-            self.stored_fields.get_field( span['count_field'] )[-1] \
+            self.storage.get_field( span['count_field'] )[-1] \
             + span['count_mod'] > \
             span['counts_written'] + 1:
                 # If this is a field, update counts written and restart
@@ -154,7 +161,7 @@ class FileParser( object ):
                 logger.debug( 'repeating span %s (%d/%d)...',
                     span['class'],
                     span['counts_written'],
-                    self.stored_fields.get_field(
+                    self.storage.get_field(
                         span['count_field'] )[-1] )
 
                 # Refurbish the span to be repeated again.
@@ -204,11 +211,11 @@ class FileParser( object ):
             # Struct that repeats based on contents of other field.
             elif self.last_struct == key and \
             'count_field' in struct and \
-            self.stored_fields.get_field( struct['count_field'] )[-1] > \
+            self.storage.get_field( struct['count_field'] )[-1] > \
             struct['counts_written']:
                 logger.debug( 'struct %s repeats %d more times',
                     key,
-                    self.stored_fields.get_field(
+                    self.storage.get_field(
                     struct['count_field'] )[-1] - struct['counts_written'] )
                 self.add_span_struct( key, struct['fields'] )
 
@@ -223,10 +230,10 @@ class FileParser( object ):
             # Struct that starts at a field mentioned elsewhere in the
             # file.
             elif 'offset_field' in struct and \
-            [x for x in self.stored_fields.get_field(
+            [x for x in self.storage.get_field(
             struct['offset_field'] ) if x == self.bytes_written]:
                 logger.debug( 'struct %s starts at stored field: %d',
-                    key, self.stored_fields.get_field(
+                    key, self.storage.get_field(
                     struct['offset_field'] )[0] )
                 self.add_span_struct( key, struct['fields'] )
                 break
@@ -269,6 +276,14 @@ class FileParser( object ):
             '<span class="{}">{}</span>'.format(
                 'byte' if self.spans_open else 'byte_free',
                 hex( byte_in ).lstrip( '0x' ).zfill( 2 ) ) )
+
+        self.storage.store_offset(
+            self.bytes_written,
+            self.spans_open[-2]['class'] if len( self.spans_open ) > 1 else
+                None,
+            self.spans_open[-1]['class'] if len( self.spans_open ) > 0 else
+                None,
+            byte_in )
 
         # Update accounting.
         self.bytes_written += 1
@@ -346,7 +361,7 @@ def main():
                 parse_file.read(), out_file, format_data )
             file_parser.parse()
             printer = pprint.PrettyPrinter()
-            printer.pprint( file_parser.stored_fields.field_storage )
+            printer.pprint( file_parser.storage.byte_storage )
 
 if '__main__' == __name__:
     main()
