@@ -3,6 +3,7 @@
 import yaml
 import argparse
 import logging
+import pprint
 
 COLUMN_LEN = 20
 
@@ -12,15 +13,11 @@ class FileParserStorage( dict ):
     def has_struct( self, key : str ):
         return key in self
 
-    def has_offset( self, key : tuple ):
-        return key[0] in self and \
-            key[1] in self[key[0]]['offsets']
-
-    def get_offset( self, key : tuple, idx : int ):
-        return self[key[0]]['offsets'][key[1]][idx]
-
-    def get_offset_list( self, key : tuple ):
-        return self[key[0]]['offsets'][key[1]]
+    def get_offset( self, key : tuple ):
+        try:
+            return self[key[0]]['offsets'][key[1]]
+        except:
+            return -1
 
     def store_offset( self, struct_key : str, offset_key : str, val : int ):
         logger = logging.getLogger( 'storage.store' )
@@ -145,28 +142,24 @@ class FileParser( object ):
                 span['parent'], span['class'], span['contents'] )
 
             if 'count_field' in span and \
-            self.stored_offsets.has_offset( span['count_field'] ):
-                if self.stored_offsets.get_offset( span['count_field'], -1 ) \
-                + span['count_mod'] > \
-                span['counts_written'] + 1:
-                    # If this is an offset, update counts written and restart
-                    # if the field says we have some left.
+            self.stored_offsets.get_offset( span['count_field'] )[-1] \
+            + span['count_mod'] > \
+            span['counts_written'] + 1:
+                # If this is an offset, update counts written and restart
+                # if the field says we have some left.
 
-                    logger.debug( 'repeating span %s (%d/%d)...',
-                        span['class'],
-                        span['counts_written'],
-                        self.stored_offsets.get_offset(
-                            span['count_field'], -1 ) )
+                logger.debug( 'repeating span %s (%d/%d)...',
+                    span['class'],
+                    span['counts_written'],
+                    self.stored_offsets.get_offset(
+                        span['count_field'] )[-1] )
 
-                    # Refurbish the span to be repeated again.
-                    self.format_span( span )
-                    span['contents'] = 0
-                    span['bytes_written'] = 0
-                    span['counts_written'] += 1
+                # Refurbish the span to be repeated again.
+                self.format_span( span )
+                span['contents'] = 0
+                span['bytes_written'] = 0
+                span['counts_written'] += 1
         
-                else:
-                    self._pop_span()
-
             else:
                 self._pop_span()
 
@@ -208,13 +201,12 @@ class FileParser( object ):
             # Struct that repeats based on contents of other offset.
             elif self.last_struct == key and \
             'count_field' in struct and \
-            self.stored_offsets.has_offset( struct['count_field'] ) and \
-            self.stored_offsets.get_offset( struct['count_field'], -1 ) > \
+            self.stored_offsets.get_offset( struct['count_field'] )[-1] > \
             struct['counts_written']:
                 logger.debug( 'struct %s repeats %d more times',
                     key,
                     self.stored_offsets.get_offset(
-                    struct['count_field'], -1 ) - struct['counts_written'] )
+                    struct['count_field'] )[-1] - struct['counts_written'] )
                 self.add_span_struct( key, struct['fields'] )
 
             # Struct that starts after a certain other ends.
@@ -228,12 +220,11 @@ class FileParser( object ):
             # Struct that starts at an offset mentioned elsewhere in the
             # file.
             elif 'offset_field' in struct and \
-            self.stored_offsets.has_offset( struct['offset_field'] ) and \
-            [x for x in self.stored_offsets.get_offset_list(
+            [x for x in self.stored_offsets.get_offset(
             struct['offset_field'] ) if x == self.bytes_written]:
                 logger.debug( 'struct %s starts at stored offset: %d',
                     key, self.stored_offsets.get_offset(
-                    struct['offset_field'], 0 ) )
+                    struct['offset_field'] )[0] )
                 self.add_span_struct( key, struct['fields'] )
                 break
 
@@ -351,7 +342,8 @@ def main():
             file_parser = FileParser(
                 parse_file.read(), out_file, format_data )
             file_parser.parse()
-            print( file_parser.stored_offsets )
+            printer = pprint.PrettyPrinter()
+            printer.pprint( file_parser.stored_offsets )
 
 if '__main__' == __name__:
     main()
