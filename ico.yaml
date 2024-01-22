@@ -107,6 +107,7 @@ structs:
             offset: 0
             size: 4
             lsbf: True
+            summarize: False
    bmp_pixels:
       offset_type: follow
       follows: bmp_palette
@@ -115,4 +116,5 @@ structs:
             count_field: bmp_info/img_sz
             offset: 0
             size: 1
+            summarize: False
 

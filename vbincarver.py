@@ -36,10 +36,10 @@ class FileParserStorage( object ):
             self.field_storage[struct_key] = {'fields': {field_key: [val]}}
 
     def store_offset(
-        self, offset : int, struct : str, field : str, val : int
+        self, offset : int, struct : str, field : str, val : int, sid: int
     ):
         self.byte_storage[offset] = \
-            {'struct': struct, 'field': field, 'value': val}
+            {'struct': struct, 'sid': sid, 'field': field, 'value': val}
 
 class FileParser( object ):
 
@@ -55,9 +55,6 @@ class FileParser( object ):
 
     def write_header( self ):
 
-        self.out_file.write( '<!DOCTYPE html><html><head>' )
-        self.out_file.write( '<link rel="stylesheet" href="hex.css" />' )
-        self.out_file.write( '</head><body>' )
         self.out_file.write( '<div class="hex-layout">' )
 
     def _add_span( self, type_in : str, class_in : str ):
@@ -100,6 +97,10 @@ class FileParser( object ):
             span['count_mod'] = kwargs['count_mod']
         else:
             span['count_mod'] = 0
+        if 'summarize' in kwargs:
+            span['summarize'] = kwargs['summarize']
+        else:
+            span['summarize'] = True
 
     def span_key( self, span : dict ):
 
@@ -177,10 +178,17 @@ class FileParser( object ):
             self._pop_span()
 
     def format_span( self, span : dict ):
-        self.out_file.write(
-            '<span class="{} {}-{}">'.format(
-                span['type'], span['type'],
-                span['class'].replace( '_', '-' ) ) )
+
+        sid = ''
+        if 'struct' == span['type']:
+            sid = ' hex-struct-' + span['class'].replace( '_', '-' ) \
+            + '-' + str(
+                self.format_data['structs'][span['class']]['counts_written'] )
+
+        self.out_file.write( '<span class="hex-{} hex-{}-{}{}">'.format(
+            span['type'], span['type'],
+            span['class'].replace( '_', '-' ),
+            sid ) )
 
     def break_line( self ):
 
@@ -277,14 +285,6 @@ class FileParser( object ):
                 'byte' if self.spans_open else 'byte_free',
                 hex( byte_in ).lstrip( '0x' ).zfill( 2 ) ) )
 
-        self.storage.store_offset(
-            self.bytes_written,
-            self.spans_open[-2]['class'] if len( self.spans_open ) > 1 else
-                None,
-            self.spans_open[-1]['class'] if len( self.spans_open ) > 0 else
-                None,
-            byte_in )
-
         # Update accounting.
         self.bytes_written += 1
         for idx in range( len( self.spans_open ) - 1, -1, -1 ):
@@ -319,12 +319,24 @@ class FileParser( object ):
                 if 'field' == self.spans_open[idx]['type'] and \
                 self.spans_open[idx]['bytes_written'] >= \
                 self.spans_open[idx]['size']:
+
+                    if self.spans_open[idx]['summarize']:
+                        self.storage.store_offset(
+                            self.bytes_written - self.spans_open[idx]['size'],
+                            self.spans_open[-2]['class'] \
+                                if len( self.spans_open ) > 1 else None,
+                            self.spans_open[idx]['class'],
+                            self.spans_open[idx]['contents'],
+                            self.format_data\
+                                ['structs'][self.spans_open[idx]['parent']]\
+                                ['counts_written'] )
+
                     self.close_span( idx )
                     if not self.spans_open:
                         # We must've popped the parent struct, too!
                         break
 
-        self.out_file.write( '</div></div></body>' )
+        self.out_file.write( '</div></div>' )
 
 def main():
     parser = argparse.ArgumentParser()
@@ -359,9 +371,56 @@ def main():
         with open( args.parse_file, 'rb' ) as parse_file:
             file_parser = FileParser(
                 parse_file.read(), out_file, format_data )
+
+            out_file.write( '<!DOCTYPE html><html><head>' )
+            out_file.write( '<link rel="stylesheet" href="hex.css" />' )
+            out_file.write( '<script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>' )
+            out_file.write( '<script src="hex.js"></script>' )
+            out_file.write( '</head><body>' )
+
             file_parser.parse()
+
             printer = pprint.PrettyPrinter()
             printer.pprint( file_parser.storage.byte_storage )
+
+            out_file.write( '<div class="hex-fields"><div>' )
+            last_struct = ''
+            for key in file_parser.storage.byte_storage:
+                if file_parser.storage.byte_storage[key]['struct'] != \
+                last_struct or \
+                file_parser.storage.byte_storage[key]['sid'] != \
+                last_sid:
+
+                    scls = 'hex-struct-{}'.format(
+                        file_parser.storage.byte_storage[key]['struct'] \
+                            .replace( '_', '-' ) )
+                    sid = scls + '-' + \
+                        str( file_parser.storage.byte_storage[key]['sid'] )
+
+                    out_file.write( '<div class="spacer"></div>' )
+                    out_file.write(
+                        '</div><div class="hex-struct {} {}">'.format(
+                            scls, sid ) )
+
+                hid = file_parser.storage.byte_storage[key]['field']\
+                    .replace( '_', '-' )
+                    
+                out_file.write(
+                    '<div class="spacer"></div>' + \
+                    '<span class="hex-field hex-field-' + \
+                    hid + '">'
+                    '<span class="hex-label">' + \
+                    file_parser.storage.byte_storage[key]['field'] + \
+                    '</span><span class="hex-contents">' + \
+                    str( file_parser.storage.byte_storage[key]['value'] ) + \
+                    '</span></span>' )
+
+                last_struct = file_parser.storage.byte_storage[key]['struct']
+                last_sid = file_parser.storage.byte_storage[key]['sid']
+
+            out_file.write( '<div class="spacer"></div></div></div>' )
+
+            out_file.write( '</body></html>' )
 
 if '__main__' == __name__:
     main()
