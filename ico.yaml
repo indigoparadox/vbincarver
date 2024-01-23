@@ -103,7 +103,8 @@ structs:
       follows: bmp_info
       fields:
          color:
-            count_field: bmp_info/ncolors
+            # Apparently the color count in bmp_info can just be zero!
+            count_field: ico_entry/ncolors#bmp_info
             offset: 0
             size: 4
             lsbf: True

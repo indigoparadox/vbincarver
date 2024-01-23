@@ -4,6 +4,7 @@ import yaml
 import argparse
 import logging
 import pprint
+import re
 
 COLUMN_LEN = 20
 
@@ -18,6 +19,14 @@ class FileParserStorage( object ):
         return key in self
 
     def get_field( self, key : tuple ):
+        
+        logger = logging.getLogger( 'storage.get' )
+
+        logger.debug( 'getting field: %s', key )
+
+        # We don't process the #-replacer here, so ditch it for now.
+        key = (key[0], re.sub( '#.*', '', key[1] ))
+        
         try:
             return self.field_storage[key[0]]['fields'][key[1]]
         except:
@@ -150,18 +159,48 @@ class FileParser( object ):
             self.storage.store_field(
                 span['parent'], span['class'], span['contents'] )
 
+            # Debug for the gnarly index below.
             if 'count_field' in span and \
-            self.storage.get_field( span['count_field'] )[-1] \
+            '#' in span['count_field'][1]:
+                try:
+                    logger.debug( 'gnarly counts written for %s: %d',
+                        re.sub( '.*#', '', span['count_field'][1] ),
+                        self.format_data['structs'][
+                            re.sub( '.*#', '', span['count_field'][1] )
+                        ]['counts_written'] - 1 )
+                    logger.debug( 'gnarly struct count: %d',
+                        self.storage.get_field( span['count_field'] )[
+                            self.format_data['structs'][
+                                re.sub( '.*#', '', span['count_field'][1] )
+                            ]['counts_written'] - 1 \
+                        ] )
+                except IndexError as e:
+                    logger.exception( e )
+                    pass
+
+            # This is kinda gnarly, but if there's a #struct_name in
+            # the count_field, then we want to subscript the count_field
+            # by the number of that #struct_name read so far, and then
+            # use the value stored in the copy of the struct *at that
+            # subscripted index* to check if we're still repeating.
+            if 'count_field' in span and \
+            self.storage.get_field( span['count_field'] )[
+                self.format_data['structs'][
+                    re.sub( '.*#', '', span['count_field'][1] )
+                ]['counts_written'] - 1 \
+                if '#' in span['count_field'][1] else -1
+            ] \
             + span['count_mod'] > \
             span['counts_written'] + 1:
                 # If this is a field, update counts written and restart
                 # if the field says we have some left.
 
-                logger.debug( 'repeating span %s (%d/%d)...',
+                logger.debug( 'repeating span %s (%d/%d(%d))...',
                     span['class'],
                     span['counts_written'],
                     self.storage.get_field(
-                        span['count_field'] )[-1] )
+                        span['count_field'] )[-1],
+                    span['count_mod'] )
 
                 # Refurbish the span to be repeated again.
                 #self.format_span( span )
