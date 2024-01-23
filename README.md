@@ -14,4 +14,5 @@ With a grammar in place, simply run it as:
 ## Ideas:
 
 - Place grammars in a common location and select based on magic number.
+- Chunk-based format support.
 
