@@ -83,19 +83,19 @@ body {
 
 /* Specific Structs */
 
-.hex-struct-ico-head, .hex-struct-alt-map {
+.hex-struct-ico-head, .hex-struct-alt-map, .hex-struct-file-head {
    background: navy;
 }
 
-.hex-struct-ico-entry, .hex-struct-city-name {
+.hex-struct-ico-entry, .hex-struct-city-name, .hex-struct-track {
    background: darkgreen;
 }
 
-.hex-struct-bmp-info, .hex-struct-xbit {
+.hex-struct-bmp-info, .hex-struct-xbit, .hex-struct-delta-time {
    background: saddlebrown;
 }
 
-.hex-struct-bmp-palette {
+.hex-struct-bmp-palette, .hex-struct-event, .hex-struct-meta-event {
    background: darkred;
 }
 

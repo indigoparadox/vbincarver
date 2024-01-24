@@ -20,7 +20,7 @@ structs:
    ico_entry:
       count_field: ico_head/ico_num_images
       offset_type: follow
-      follows: ico_head
+      follows: [ico_head]
       fields:
          width:
             offset: 0
@@ -100,7 +100,7 @@ structs:
             lsbf: True
    bmp_palette:
       offset_type: follow
-      follows: bmp_info
+      follows: [bmp_info]
       fields:
          color:
             # Apparently the color count in bmp_info can just be zero!
@@ -111,7 +111,7 @@ structs:
             summarize: sum_repeat
    bmp_pixels:
       offset_type: follow
-      follows: bmp_palette
+      follows: [bmp_palette]
       fields:
          px:
             count_field: bmp_info/img_sz

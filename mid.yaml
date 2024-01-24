@@ -1,0 +1,77 @@
+---
+structs:
+   file_head:
+      offset_type: chunk
+      offset_magic: MThd
+      fields:
+         chunk:
+            offset: 0
+            size: 4
+            format: string
+         size:
+            offset: 4
+            size: 4
+         format:
+            offset: 8
+            size: 2
+         num_tracks:
+            offset: 10
+            size: 2
+         division:
+            offset: 12
+            size: 2
+   track:
+      offset_type: chunk
+      offset_magic: MTrk
+      fields:
+         chunk:
+            offset: 0
+            size: 4
+            format: string
+         size:
+            offset: 4
+            size: 4
+   delta_time:
+      offset_type: follow
+      follows:
+         - track
+         - event
+         - meta_event
+      fields:
+         delta_time_val:
+            offset: 0
+            null_term: true
+            summarize: false
+   event:
+      offset_type: follow
+      follows: []
+      check_size: 6
+      first_byte_not:
+         - 0xff
+      fields:
+         type_channel:
+            offset: 0
+            size: 2
+            summarize: false
+         param_1:
+            offset: 2
+            size: 2
+            summarize: false
+         param_2:
+            offset: 4
+            size: 2
+            summarize: false
+   meta_event:
+      offset_type: follow
+      follows: [delta_time]
+      first_byte_is:
+         - 0xff
+      fields:
+         type:
+            offset: 0
+            size: 1
+            summarize: false
+         data:
+            offset: 1
+            summarize: false
+            null_term: true
