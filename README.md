@@ -15,4 +15,5 @@ With a grammar in place, simply run it as:
 
 - Place grammars in a common location and select based on magic number.
 - Chunk-based format support.
+- Tool for detecting chunks or other common file format artefacts.
 
