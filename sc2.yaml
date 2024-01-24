@@ -12,18 +12,16 @@ structs:
          size:
             offset: 4
             size: 4
-            lsbf: True
          square:
             count_field: alt_map/size
-            count_mod: "(count_field - 8) / 2"
+            count_mod: "(count_field) / 2"
             offset: 8
             size: 2
-            summarize: False
+            summarize: sum_repeat
             hidden: True
    xbit:
       offset_type: chunk
-      offset_type: XBIT
-      check_size: 16384
+      offset_magic: XBIT
       fields:
          chunk:
             offset: 0
@@ -32,27 +30,62 @@ structs:
          size:
             offset: 4
             size: 4
-         square:
-            count_field: alt_map/size
-            count_mod: "(count_field - 8)"
+         compressed_xbit:
+            count_field: xbit/size
             offset: 8
-            size: 2
-            summarize: False
+            size: 1
+            summarize: sum_repeat
             hidden: True
-
-   city_name:
+   xter:
       offset_type: chunk
-      offset_magic: CNAM
-      check_size: 32
+      offset_magic: XTER
       fields:
          chunk:
             offset: 0
             size: 4
             format: string
-         length:
+         size:
             offset: 4
+            size: 4
+         compressed_xbit:
+            count_field: xter/size
+            offset: 8
+            size: 1
+            summarize: sum_repeat
+            hidden: True
+   xtxt:
+      offset_type: chunk
+      offset_magic: XTXT
+      fields:
+         chunk:
+            offset: 0
+            size: 4
+            format: string
+         size:
+            offset: 4
+            size: 4
+         compressed_xtxt:
+            count_field: xtxt/size
+            offset: 8
+            size: 1
+            summarize: sum_repeat
+            hidden: True
+   city_name:
+      offset_type: chunk
+      offset_magic: CNAM
+      check_size: 40
+      fields:
+         chunk:
+            offset: 0
+            size: 4
+            format: string
+         size:
+            offset: 4
+            size: 4
+         length:
+            offset: 8
             size: 1
          name:
             format: string
-            offset: 5
+            offset: 9
             size: 31

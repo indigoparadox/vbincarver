@@ -5,6 +5,7 @@ import argparse
 import logging
 import pprint
 import re
+from collections import OrderedDict
 
 COLUMN_LEN = 20
 
@@ -12,7 +13,7 @@ class FileParserStorage( object ):
 
     def __init__( self ):
         self.field_storage = {}
-        self.byte_storage = {}
+        self.byte_storage = OrderedDict()
         self.sz_storage = {}
 
     def has_struct( self, key : str ):
@@ -27,10 +28,7 @@ class FileParserStorage( object ):
         # We don't process the #-replacer here, so ditch it for now.
         key = (key[0], re.sub( '#.*', '', key[1] ))
         
-        try:
-            return self.field_storage[key[0]]['fields'][key[1]]
-        except:
-            return -1
+        return self.field_storage[key[0]]['fields'][key[1]]
 
     def store_field( self, struct_key : str, field_key : str, val : int ):
         logger = logging.getLogger( 'storage.store' )
@@ -47,29 +45,53 @@ class FileParserStorage( object ):
 
     def store_offset(
         self, offset : int, sz : int, struct : str, field : str, val : int, 
-        sid: int
+        sid: int, sum_to_last: bool
     ):
-        self.byte_storage[offset] = {'struct': struct, 'size': sz,
-            'sid': sid, 'field': field, 'value': val}
+        bs_items = list( self.byte_storage.items() )
+        if sum_to_last and \
+        0 < len( self.byte_storage ) and \
+        bs_items[-1][1]['field'] == field and \
+        bs_items[-1][1]['struct'] == struct and \
+        bs_items[-1][1]['sid'] == sid:
+            self.byte_storage[bs_items[-1][0]]['size'] += sz
+            self.byte_storage[bs_items[-1][0]]['value'] = ''
+        else:
+            self.byte_storage[offset] = {'struct': struct, 'size': sz,
+                'sid': sid, 'field': field, 'value': val}
 
 class ChunkFinder( object ):
+
+    ''' Special ring buffer for finding the start of chunks. '''
 
     def __init__( self, owner ):
         self.owner = owner
         self.magic_buf = ''
         self.start_offset = 0
 
-    def push( self, c ):
+    def push( self, c ) -> int:
 
         logger = logging.getLogger( 'chunk.push' )
-        
-        self.magic_buf = self.magic_buf + chr( c )
-        while 4 < len( self.magic_buf ):
-            # Drop first char and push up the start offset.
-            self.magic_buf = self.magic_buf[1:]
-            self.start_offset += 1
 
         #logger.debug( 'buffer: %s', self.magic_buf )
+        
+        self.magic_buf = self.magic_buf + chr( c )
+        if 4 < len( self.magic_buf ):
+            # Drop first char and push up the start offset.
+            self.start_offset += 1
+            return self.pop()
+
+        return -1
+
+    def has_bytes( self ) -> bool:
+        return len( self.magic_buf )
+
+    def pop( self ) -> int:
+        byte_out = self.magic_buf[0]
+        if 0 < len( self.magic_buf ):
+            self.magic_buf = self.magic_buf[1:]
+        else:
+            self.magic_buf = '' # Outta bytes!
+        return ord( byte_out )
 
 class FileParser( object ):
 
@@ -132,7 +154,7 @@ class FileParser( object ):
         if 'summarize' in kwargs:
             span['summarize'] = kwargs['summarize']
         else:
-            span['summarize'] = True
+            span['summarize'] = 'default'
         if 'hidden' in kwargs:
             span['hidden'] = kwargs['hidden']
         else:
@@ -297,9 +319,6 @@ class FileParser( object ):
                     self.chunk_finder.start_offset )
                 self.add_span_struct( key, **struct )
 
-                # We've already read the chunk name.
-                self.spans_open[-1]['bytes_written'] = 3
-
             # Struct that repeats based on contents of other field.
             elif self.last_struct == key and \
             'count_field' in struct and \
@@ -346,14 +365,20 @@ class FileParser( object ):
                 del open_struct['fields'][key]
                 break
 
-    def format_byte( self, byte_in : int ):
+    def format_byte( self, byte_in : int, find_chunk : bool = True ):
 
         logger = logging.getLogger( 'parser.format_byte' )
+
+        # Don't infinite loop if we're pushing chunk bytes in.
+        if find_chunk:
+            byte_in = self.chunk_finder.push( byte_in )
+        if -1 == byte_in:
+            return
 
         # Add our byte to the open field contents if there is one.
         if self.spans_open and 'field' == self.spans_open[-1]['type']:
             if 'string' == self.spans_open[-1]['format']:
-                self.spans_open[-1]['contents'] += byte_in
+                self.spans_open[-1]['contents'] += chr( byte_in )
             elif self.spans_open[-1]['lsbf']:
                 # Shift byte before adding it.
                 self.spans_open[-1]['contents'] |= \
@@ -364,8 +389,6 @@ class FileParser( object ):
             #logger.debug( 'current field %s/%s contents: 0x%08x',
             #    self.spans_open[-1]['parent'], self.spans_open[-1]['class'],
             #    self.spans_open[-1]['contents'] )
-
-        self.chunk_finder.push( byte_in )
 
         # Write our byte.
         self.buffer.append( (
@@ -387,47 +410,60 @@ class FileParser( object ):
         for idx in range( len( self.spans_open ) - 1, -1, -1 ):
             self.spans_open[idx]['bytes_written'] += 1
 
+    def _parse_byte( self, file_byte : int, find_chunk : bool = True ):
+
+        logger = logging.getLogger( 'parser.parse.byte' )
+    
+        if not self.spans_open:
+            self.select_span_struct()
+
+        # Not an elif, as it can run after a new struct is added earlier
+        # in this method.
+        if self.spans_open and 'struct' == self.spans_open[-1]['type']:
+            # We're inside a struct but not a field... so find one!
+            self.select_span_field( self.spans_open[-1] )
+    
+        self.format_byte( file_byte, find_chunk )
+        
+        # Start from the end of the open spans so we don't alter
+        # the size of the list while working on it.
+        for idx in range( len( self.spans_open ) - 1, -1, -1 ):
+            if 'field' == self.spans_open[idx]['type'] and \
+            self.spans_open[idx]['bytes_written'] >= \
+            self.spans_open[idx]['size']:
+
+                if self.spans_open[idx]['summarize']:
+                    # Store info for a summarization stanza.
+                    self.storage.store_offset(
+                        self.bytes_written - self.spans_open[idx]['size'],
+                        self.spans_open[idx]['size'],
+                        self.spans_open[-2]['class'] \
+                            if len( self.spans_open ) > 1 else None,
+                        self.spans_open[idx]['class'],
+                        self.spans_open[idx]['contents'],
+                        self.format_data\
+                            ['structs'][self.spans_open[idx]['parent']]\
+                            ['counts_written'],
+                        self.spans_open[idx]['summarize'] == 'sum_repeat' )
+
+                self.close_span( idx )
+                if not self.spans_open:
+                    # We must've popped the parent struct, too!
+                    break
+
     def parse( self ):
 
         logger = logging.getLogger( 'parser.parse' )
-    
+
         for file_byte in self.in_file:
+            self._parse_byte( file_byte )
 
-            if not self.spans_open:
-                self.select_span_struct()
-
-            # Not an elif, as it can run after a new struct is added earlier
-            # in this method.
-            if self.spans_open and 'struct' == self.spans_open[-1]['type']:
-                # We're inside a struct but not a field... so find one!
-                self.select_span_field( self.spans_open[-1] )
-        
-            self.format_byte( file_byte )
-           
-            # Start from the end of the open spans so we don't alter
-            # the size of the list while working on it.
-            for idx in range( len( self.spans_open ) - 1, -1, -1 ):
-                if 'field' == self.spans_open[idx]['type'] and \
-                self.spans_open[idx]['bytes_written'] >= \
-                self.spans_open[idx]['size']:
-
-                    if self.spans_open[idx]['summarize']:
-                        # Store info for a summarization stanza.
-                        self.storage.store_offset(
-                            self.bytes_written - self.spans_open[idx]['size'],
-                            self.spans_open[idx]['size'],
-                            self.spans_open[-2]['class'] \
-                                if len( self.spans_open ) > 1 else None,
-                            self.spans_open[idx]['class'],
-                            self.spans_open[idx]['contents'],
-                            self.format_data\
-                                ['structs'][self.spans_open[idx]['parent']]\
-                                ['counts_written'] )
-
-                    self.close_span( idx )
-                    if not self.spans_open:
-                        # We must've popped the parent struct, too!
-                        break
+        # Empty out the chunk finder!
+        while self.chunk_finder.has_bytes():
+            logger.debug(
+                'shaking out the chunk finder (%d left!)...',
+                self.chunk_finder.has_bytes() )
+            self._parse_byte( self.chunk_finder.pop(), find_chunk=False )
 
 class HexFormatter( object ):
 
@@ -584,19 +620,21 @@ def main():
             #printer = pprint.PrettyPrinter()
             #printer.pprint( file_parser.buffer )
 
+            storage = file_parser.storage
+
             out_file.write( '<div class="hex-fields"><div>' )
             last_struct = ''
-            for key in file_parser.storage.byte_storage:
-                if file_parser.storage.byte_storage[key]['struct'] != \
+            for key in storage.byte_storage:
+                if storage.byte_storage[key]['struct'] != \
                 last_struct or \
-                file_parser.storage.byte_storage[key]['sid'] != \
+                storage.byte_storage[key]['sid'] != \
                 last_sid:
 
                     scls = 'hex-struct-{}'.format(
-                        file_parser.storage.byte_storage[key]['struct'] \
+                        storage.byte_storage[key]['struct'] \
                             .replace( '_', '-' ) )
                     sid = scls + '-' + \
-                        str( file_parser.storage.byte_storage[key]['sid'] )
+                        str( storage.byte_storage[key]['sid'] )
 
                     # Start a new struct.
                     out_file.write( '<div class="spacer"></div>' )
@@ -605,24 +643,24 @@ def main():
                             scls, sid ) )
                     out_file.write(
                         '<h3 class="hex-struct-title">{}</h3>'.format(
-                            file_parser.storage.byte_storage[key]['struct']
+                            storage.byte_storage[key]['struct']
                                 ) )
                     out_file.write(
                         '<div class="hex-struct-sz">({} bytes)</div>'.format(
     
-    # Sum sizes of all fields in the struct.
-    sum( [file_parser.storage.byte_storage[x]['size'] \
-        for x in file_parser.storage.byte_storage \
-            if file_parser.storage.byte_storage[x]['struct'] == \
-                file_parser.storage.byte_storage[key]['struct'] and \
-            file_parser.storage.byte_storage[x]['sid'] == \
-                file_parser.storage.byte_storage[key]['sid']] )
+                        # Sum sizes of all fields in the struct.
+                        sum( [storage.byte_storage[x]['size'] \
+                            for x in storage.byte_storage \
+                                if storage.byte_storage[x]['struct'] == \
+                                    storage.byte_storage[key]['struct'] and \
+                                storage.byte_storage[x]['sid'] == \
+                                    storage.byte_storage[key]['sid']] )
 
                                 ) )
 
                 # Write the field.
 
-                hid = file_parser.storage.byte_storage[key]['field']\
+                hid = storage.byte_storage[key]['field']\
                     .replace( '_', '-' )
                     
                 out_file.write(
@@ -630,17 +668,17 @@ def main():
                     '<span class="hex-field hex-field-' + \
                     hid + '">'
                     '<span class="hex-label">' + \
-                        file_parser.storage.byte_storage[key]['field'] + \
+                        storage.byte_storage[key]['field'] + \
                         '</span>' + \
                     '<span class="hex-sz">(' + \
-                    str( file_parser.storage.byte_storage[key]['size'] ) + \
+                    str( storage.byte_storage[key]['size'] ) + \
                         ' bytes)</span>' + \
                     '<span class="hex-contents">' + \
-                    str( file_parser.storage.byte_storage[key]['value'] ) + \
+                    str( storage.byte_storage[key]['value'] ) + \
                         '</span></span>' )
 
-                last_struct = file_parser.storage.byte_storage[key]['struct']
-                last_sid = file_parser.storage.byte_storage[key]['sid']
+                last_struct = storage.byte_storage[key]['struct']
+                last_sid = storage.byte_storage[key]['sid']
 
             out_file.write( '<div class="spacer"></div></div></div>' )
 
