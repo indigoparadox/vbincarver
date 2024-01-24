@@ -83,15 +83,15 @@ body {
 
 /* Specific Structs */
 
-.hex-struct-ico-head {
+.hex-struct-ico-head, .hex-struct-alt-map {
    background: navy;
 }
 
-.hex-struct-ico-entry {
+.hex-struct-ico-entry, .hex-struct-city-name {
    background: darkgreen;
 }
 
-.hex-struct-bmp-info {
+.hex-struct-bmp-info, .hex-struct-xbit {
    background: saddlebrown;
 }
 

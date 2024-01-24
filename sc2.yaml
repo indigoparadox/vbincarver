@@ -1,0 +1,58 @@
+---
+structs:
+   alt_map:
+      offset_type: chunk
+      offset_magic: ALTM
+      check_size: 32768
+      fields:
+         chunk:
+            offset: 0
+            size: 4
+            format: string
+         size:
+            offset: 4
+            size: 4
+            lsbf: True
+         square:
+            count_field: alt_map/size
+            count_mod: "(count_field - 8) / 2"
+            offset: 8
+            size: 2
+            summarize: False
+            hidden: True
+   xbit:
+      offset_type: chunk
+      offset_type: XBIT
+      check_size: 16384
+      fields:
+         chunk:
+            offset: 0
+            size: 4
+            format: string
+         size:
+            offset: 4
+            size: 4
+         square:
+            count_field: alt_map/size
+            count_mod: "(count_field - 8)"
+            offset: 8
+            size: 2
+            summarize: False
+            hidden: True
+
+   city_name:
+      offset_type: chunk
+      offset_magic: CNAM
+      check_size: 32
+      fields:
+         chunk:
+            offset: 0
+            size: 4
+            format: string
+         length:
+            offset: 4
+            size: 1
+         name:
+            format: string
+            offset: 5
+            size: 31

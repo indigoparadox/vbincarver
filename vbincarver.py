@@ -52,6 +52,25 @@ class FileParserStorage( object ):
         self.byte_storage[offset] = {'struct': struct, 'size': sz,
             'sid': sid, 'field': field, 'value': val}
 
+class ChunkFinder( object ):
+
+    def __init__( self, owner ):
+        self.owner = owner
+        self.magic_buf = ''
+        self.start_offset = 0
+
+    def push( self, c ):
+
+        logger = logging.getLogger( 'chunk.push' )
+        
+        self.magic_buf = self.magic_buf + chr( c )
+        while 4 < len( self.magic_buf ):
+            # Drop first char and push up the start offset.
+            self.magic_buf = self.magic_buf[1:]
+            self.start_offset += 1
+
+        #logger.debug( 'buffer: %s', self.magic_buf )
+
 class FileParser( object ):
 
     def __init__( self, in_file, format_data : dict ):
@@ -63,6 +82,7 @@ class FileParser( object ):
         self.format_data = format_data
         self.storage = FileParserStorage()
         self.buffer = []
+        self.chunk_finder = ChunkFinder( self )
 
     def _add_span( self, type_in : str, class_in : str ):
         logger = logging.getLogger( 'parser.add_span' )
@@ -77,12 +97,15 @@ class FileParser( object ):
         #self.format_span( span )
         return span
 
-    def add_span_struct( self, class_in : str, fields : dict ):
+    def add_span_struct( self, class_in : str, **kwargs ):
         for span in self.spans_open:
             assert( 'struct' != span['class'] )
         self.last_struct = class_in
         span = self._add_span( 'struct', class_in )
-        span['fields'] = dict( fields ) # Copy!
+        assert( 'fields' in kwargs )
+        span['fields'] = dict( kwargs['fields'] ) # Copy!
+        if 'check_size' in kwargs:
+            span['check_size'] = kwargs['check_size']
 
     def add_span_field( self, class_in : str, **kwargs ):
         
@@ -98,16 +121,35 @@ class FileParser( object ):
         span['counts_written'] = 0
         if 'lsbf' in kwargs:
             span['lsbf'] = kwargs['lsbf']
+        else:
+            span['lsbf'] = False
         if 'count_field' in kwargs:
             span['count_field'] = kwargs['count_field'].split( '/' )
         if 'count_mod' in kwargs:
             span['count_mod'] = kwargs['count_mod']
         else:
-            span['count_mod'] = 0
+            span['count_mod'] = 'count_field' # Pass straight thru eval().
         if 'summarize' in kwargs:
             span['summarize'] = kwargs['summarize']
         else:
             span['summarize'] = True
+        if 'hidden' in kwargs:
+            span['hidden'] = kwargs['hidden']
+        else:
+            span['hidden'] = False
+        if 'format' in kwargs:
+            span['format'] = kwargs['format']
+        else:
+            span['format'] = 'number'
+
+        # Initialize contents correctly for format.
+        if 'string' == span['format']:
+            span['contents'] = ''
+        elif 'number' == span['format']:
+            span['contents'] = 0
+        else:
+            # This should never happen.
+            1 / 0
 
     def span_key( self, span : dict ):
 
@@ -134,6 +176,16 @@ class FileParser( object ):
         if self.spans_open and \
         'fields' in self.spans_open[-1] and \
         not self.spans_open[-1]['fields']:
+
+            if 'check_size' in self.spans_open[-1]:
+                if self.spans_open[-1]['bytes_written'] != \
+                self.spans_open[-1]['check_size']:
+                    logger.warning(
+                        'incorrect size for struct %s: %d (should be %d)',
+                        self.spans_open[-1]['class'],
+                        self.spans_open[-1]['bytes_written'],
+                        self.spans_open[-1]['check_size'] )
+
             # Parent struct has no more fields. Close the parent
             # struct.
             self.close_span( -1 )
@@ -184,23 +236,26 @@ class FileParser( object ):
             # use the value stored in the copy of the struct *at that
             # subscripted index* to check if we're still repeating.
             if 'count_field' in span and \
-            self.storage.get_field( span['count_field'] )[
-                self.format_data['structs'][
-                    re.sub( '.*#', '', span['count_field'][1] )
-                ]['counts_written'] - 1 \
-                if '#' in span['count_field'][1] else -1
-            ] \
-            + span['count_mod'] > \
-            span['counts_written'] + 1:
+            eval( span['count_mod'],
+                {},
+                {'count_field':
+                    self.storage.get_field( span['count_field'] )[
+                        self.format_data['structs'][
+                            re.sub( '.*#', '', span['count_field'][1] )
+                        ]['counts_written'] - 1 \
+                        if '#' in span['count_field'][1] else -1
+                    ] \
+                } \
+            ) > span['counts_written'] + 1:
                 # If this is a field, update counts written and restart
                 # if the field says we have some left.
 
-                logger.debug( 'repeating span %s (%d/%d(%d))...',
-                    span['class'],
-                    span['counts_written'],
-                    self.storage.get_field(
-                        span['count_field'] )[-1],
-                    span['count_mod'] )
+                #logger.debug( 'repeating span %s (%d/%d(%d))...',
+                #    span['class'],
+                #    span['counts_written'],
+                #    self.storage.get_field(
+                #        span['count_field'] )[-1],
+                #    span['count_mod'] )
 
                 # Refurbish the span to be repeated again.
                 #self.format_span( span )
@@ -218,6 +273,8 @@ class FileParser( object ):
 
         logger = logging.getLogger( 'parser.select_span.struct' )
 
+        assert( 0 == len( self.spans_open ) )
+
         # We're not inside a struct... So find one!
         for key in self.format_data['structs']:
             struct = self.format_data['structs'][key]
@@ -229,8 +286,19 @@ class FileParser( object ):
             self.bytes_written == struct['offset']:
                 logger.debug( 'found static struct %s at offset: %d',
                     key, self.bytes_written )
-                self.add_span_struct( key, struct['fields'] )
+                self.add_span_struct( key, **struct )
                 break
+
+            elif 'chunk' == struct['offset_type'] and \
+            self.chunk_finder.magic_buf == struct['offset_magic']:
+                
+                logger.debug( 'found chunk %s starting at offset: %d',
+                    self.chunk_finder.magic_buf,
+                    self.chunk_finder.start_offset )
+                self.add_span_struct( key, **struct )
+
+                # We've already read the chunk name.
+                self.spans_open[-1]['bytes_written'] = 3
 
             # Struct that repeats based on contents of other field.
             elif self.last_struct == key and \
@@ -241,14 +309,14 @@ class FileParser( object ):
                     key,
                     self.storage.get_field(
                     struct['count_field'] )[-1] - struct['counts_written'] )
-                self.add_span_struct( key, struct['fields'] )
+                self.add_span_struct( key, **struct )
 
             # Struct that starts after a certain other ends.
             elif 'follow' == struct['offset_type'] and \
             self.last_struct == struct['follows']:
                 logger.debug( 'struct %s follows struct %s',
                     key, self.last_struct )
-                self.add_span_struct( key, struct['fields'] )
+                self.add_span_struct( key, **struct )
                 break
 
             # Struct that starts at a field mentioned elsewhere in the
@@ -259,7 +327,7 @@ class FileParser( object ):
                 logger.debug( 'struct %s starts at stored field: %d',
                     key, self.storage.get_field(
                     struct['offset_field'] )[0] )
-                self.add_span_struct( key, struct['fields'] )
+                self.add_span_struct( key, **struct )
                 break
 
     def select_span_field( self, open_struct : dict ):
@@ -284,7 +352,9 @@ class FileParser( object ):
 
         # Add our byte to the open field contents if there is one.
         if self.spans_open and 'field' == self.spans_open[-1]['type']:
-            if 'lsbf' in self.spans_open[-1] and self.spans_open[-1]['lsbf']:
+            if 'string' == self.spans_open[-1]['format']:
+                self.spans_open[-1]['contents'] += byte_in
+            elif self.spans_open[-1]['lsbf']:
                 # Shift byte before adding it.
                 self.spans_open[-1]['contents'] |= \
                     (byte_in << self.spans_open[-1]['bytes_written'] * 8)
@@ -294,6 +364,8 @@ class FileParser( object ):
             #logger.debug( 'current field %s/%s contents: 0x%08x',
             #    self.spans_open[-1]['parent'], self.spans_open[-1]['class'],
             #    self.spans_open[-1]['contents'] )
+
+        self.chunk_finder.push( byte_in )
 
         # Write our byte.
         self.buffer.append( (
@@ -306,7 +378,9 @@ class FileParser( object ):
             self.spans_open[1]['class'] \
                 if 1 < len( self.spans_open ) else None,
             self.spans_open[-1]['counts_written'] \
-                if 1 < len( self.spans_open ) else None ) )
+                if 1 < len( self.spans_open ) else None,
+            {'hidden': self.spans_open[-1]['hidden']} \
+                if 1 < len( self.spans_open ) else {'hidden': False}) )
 
         # Update accounting.
         self.bytes_written += 1
@@ -338,6 +412,7 @@ class FileParser( object ):
                 self.spans_open[idx]['size']:
 
                     if self.spans_open[idx]['summarize']:
+                        # Store info for a summarization stanza.
                         self.storage.store_offset(
                             self.bytes_written - self.spans_open[idx]['size'],
                             self.spans_open[idx]['size'],
@@ -434,6 +509,11 @@ class HexFormatter( object ):
             None != self.last_field:
                 self.close_span( ind=3 )
 
+            # Don't write next byte if hidden.
+            # TODO: Write the first 3 or so of a repeating pattern? Placehold?
+            if buf_tup[5]['hidden']:
+                continue
+
             # See if we can open a new struct.
             if (self.last_struct != buf_tup[1] or \
             self.last_struct_id != buf_tup[2]) and \
@@ -476,6 +556,9 @@ def main():
 
     logger = logging.basicConfig( level=logging.DEBUG )
 
+    storage_logger = logging.getLogger( 'storage' )
+    storage_logger.setLevel( level=logging.INFO )
+
     format_data = None
     with open( args.format, 'r' ) as format_file:
         format_data = yaml.load( format_file, Loader=yaml.Loader )
@@ -498,8 +581,8 @@ def main():
             formatter.write_layout()
             formatter.write_footer()
 
-            printer = pprint.PrettyPrinter()
-            printer.pprint( file_parser.buffer )
+            #printer = pprint.PrettyPrinter()
+            #printer.pprint( file_parser.buffer )
 
             out_file.write( '<div class="hex-fields"><div>' )
             last_struct = ''
