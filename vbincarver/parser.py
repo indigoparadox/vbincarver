@@ -202,17 +202,27 @@ class FileParser( object ):
         return '{}/{}'.format( span['parent'], span['class'] ) \
             if 'field' == span['type'] else span['class']
 
-    def _pop_span( self, idx : int = -1 ):
+    def close_span( self, idx: int ):
+    
+        ''' Close or repeat a span as the rules dictate. '''
 
-        ''' Actually remove a span from the list of open spans. Close its
-        parent, too, if it was the last child. '''
+        logger = logging.getLogger( 'parser.close_span' )
 
-        logger = logging.getLogger( 'parser.pop_span' )
-
-        span_key = self.span_key( self.spans_open[idx] )
+        # Some convenience handlers.
+        span = self.spans_open[idx]
+        span_key = self.span_key( span )
 
         logger.debug( 'closing span: %s after %d bytes',
             span_key, self.spans_open[idx]['bytes_written'] )
+
+        if 'struct' == span['type']:
+            self.format_data['structs'][span['class']]['counts_written'] += 1
+
+        # Structs just get popped.
+        if 'field' == span['type']:
+            # Store field contents for later if requested.
+            self.storage.store_field(
+                span['parent'], span['class'], span['contents'] )
 
         # Actually remove the span.
         self.spans_open.pop( idx )
@@ -234,33 +244,6 @@ class FileParser( object ):
             # struct.
             if not self._last_field_repeats():
                 self.close_span( -1 )
-
-    def close_span( self, idx: int ):
-    
-        ''' Close or repeat a span as the rules dictate. '''
-
-        logger = logging.getLogger( 'parser.close_span' )
-
-        # Some convenience handlers.
-        span = self.spans_open[idx]
-        span_key = self.span_key( span )
-
-        if 'struct' == span['type']:
-            self.format_data['structs'][span['class']]['counts_written'] += 1
-
-        # Write the closing span and pop the span off the open list.
-        #self.out_file.write( '</span>' )
-
-        # Structs just get popped.
-        if 'field' != span['type']:
-            self._pop_span()
-            return
-
-        # Store field contents for later if requested.
-        self.storage.store_field(
-            span['parent'], span['class'], span['contents'] )
-
-        self._pop_span()
 
     def select_span_struct( self ):
 
