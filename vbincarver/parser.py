@@ -271,10 +271,26 @@ class FileParser( object ):
                     [hex( x ) for x in struct['first_byte_not']] ) )
             return False
 
+        if 'first_byte_not_and' in struct and \
+        [x for x in struct['first_byte_not_and'] if x == c & x]:
+            logger.debug(
+                'struct %s first byte is %s: negative match (not %s)!',
+                key, hex( c ), ','.join( 
+                    [hex( x ) for x in struct['first_byte_not_and']] ) )
+            return False
+
         if 'first_byte_is' in struct and c not in struct['first_byte_is']:
             logger.debug( 'struct %s first byte is %s: negative match (%s)!',
                 key, hex( c ), ','.join(
                     [hex( x ) for x in struct['first_byte_is']] ) )
+            return False
+
+        if 'first_byte_is_and' in struct and \
+        not [x for x in struct['first_byte_is_and'] if x == c & x]:
+            logger.debug(
+                'struct %s first byte is %s (AND): negative match (%s)!',
+                key, hex( c ), ','.join(
+                    [hex( x ) for x in struct['first_byte_is_and']] ) )
             return False
 
         return True
