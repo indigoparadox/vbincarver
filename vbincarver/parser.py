@@ -13,17 +13,17 @@ class FileParserStorage( object ):
     def has_struct( self, key : str ):
         return key in self
 
-    def get_field( self, key : tuple ):
+    def get_field( self, struct_key : str, field_key : str ):
         
         logger = logging.getLogger( 'storage.get' )
 
-        logger.debug( 'getting field: %s', key )
+        logger.debug( 'getting field: %s/%s', struct_key, field_key )
 
         # We don't process the #-replacer here, so ditch it for now.
-        key = (key[0], re.sub( '#.*', '', key[1] ))
+        key = (struct_key, re.sub( '#.*', '', field_key ))
         
         try:
-            return self.field_storage[key[0]]['fields'][key[1]]
+            return self.field_storage[struct_key]['fields'][field_key]
         except KeyError as e:
             logger.warn( e )
             return []
@@ -238,8 +238,20 @@ class FileParser( object ):
             if 1 == len( self.spans_open[-1]['fields'] ):
                 key = list( self.spans_open[-1]['fields'].keys() )[-1]
                 field = self.spans_open[-1]['fields'][key]
+
+                # Also check conditions from select_span_field() to see
+                # if last field won't appear.
+
                 if 'count_field' in field and \
                 0 == self.lookup_count_field( key, field ):
+                    # This field should never appear!
+                    del self.spans_open[-1]['fields'][key]
+
+                if 'match_field' in field and \
+                not self.match_byte(
+                self.storage.get_field(
+                    self.spans_open[-1]['class'], field['match_field'] ),
+                field['match_field'], field, 'match_field' ):
                     # This field should never appear!
                     del self.spans_open[-1]['fields'][key]
 
@@ -260,37 +272,47 @@ class FileParser( object ):
                 if not self._last_field_repeats():
                     self.close_span( -1 )
 
-    def match_first_byte( self, c : int, key : str, struct : dict ):
+    def match_byte(
+        self, c : int, key : str, span : dict, field_match : str = 'first'
+    ):
 
-        logger = logging.getLogger( 'parser.select.span.struct' )
+        logger = logging.getLogger( 'parser.match.byte' )
 
-        if 'first_byte_not' in struct and c in struct['first_byte_not']:
+        if type( c ) == list:
+            c = c[-1]
+
+        logger.debug( 'comparing byte: %s', hex( c ) )
+
+        if field_match + '_byte_not' in span and \
+        c in span[field_match + '_byte_not']:
             logger.debug(
-                'struct %s first byte is %s: negative match (not %s)!',
-                key, hex( c ), ','.join( 
-                    [hex( x ) for x in struct['first_byte_not']] ) )
+                '%s %s byte is %s: negative match (not %s)!',
+                key, field_match, hex( c ), ','.join( 
+                    [hex( x ) for x in span[field_match + '_byte_not']] ) )
             return False
 
-        if 'first_byte_not_and' in struct and \
-        [x for x in struct['first_byte_not_and'] if x == c & x]:
+        if field_match + '_byte_not_and' in span and \
+        [x for x in span[field_match + '_byte_not_and'] if x == c & x]:
             logger.debug(
-                'struct %s first byte is %s: negative match (not %s)!',
-                key, hex( c ), ','.join( 
-                    [hex( x ) for x in struct['first_byte_not_and']] ) )
+                '%s %s byte is %s: negative match (not %s)!',
+                key, field_match, hex( c ), ','.join( 
+                    [hex( x ) for x in \
+                        span[field_match + '_byte_not_and']] ) )
             return False
 
-        if 'first_byte_is' in struct and c not in struct['first_byte_is']:
-            logger.debug( 'struct %s first byte is %s: negative match (%s)!',
-                key, hex( c ), ','.join(
-                    [hex( x ) for x in struct['first_byte_is']] ) )
+        if field_match + '_byte_is' in span and \
+        c not in span[field_match + '_byte_is']:
+            logger.debug( '%s %s byte is %s: negative match (%s)!',
+                key, field_match, hex( c ), ','.join(
+                    [hex( x ) for x in span[field_match + '_byte_is']] ) )
             return False
 
-        if 'first_byte_is_and' in struct and \
-        not [x for x in struct['first_byte_is_and'] if x == c & x]:
+        if field_match + '_byte_is_and' in span and \
+        not [x for x in span[field_match + '_byte_is_and'] if x == c & x]:
             logger.debug(
-                'struct %s first byte is %s (AND): negative match (%s)!',
-                key, hex( c ), ','.join(
-                    [hex( x ) for x in struct['first_byte_is_and']] ) )
+                '%s %s byte is %s (AND): negative match (%s)!',
+                key, field_match, hex( c ), ','.join(
+                    [hex( x ) for x in span[field_match + '_byte_is_and']] ) )
             return False
 
         return True
@@ -329,21 +351,23 @@ class FileParser( object ):
             # Struct that repeats based on contents of other field.
             elif self.last_struct == key and \
             'count_field' in struct and \
-            self.match_first_byte(
+            self.match_byte(
                 self.chunk_finder.peek(), key, struct ) and \
-            self.storage.get_field( struct['count_field'] )[-1] > \
+            self.storage.get_field(
+                struct['count_field'][0], struct['count_field'][1] )[-1] > \
             struct['counts_written']:
                 logger.debug( 'struct %s repeats %d more times',
                     key,
                     self.storage.get_field(
-                    struct['count_field'] )[-1] - struct['counts_written'] )
+                    struct['count_field'][0], struct['count_field'][1] )[-1] \
+                    - struct['counts_written'] )
                 self.add_span_struct( key, **struct )
                 break
 
             # Struct that starts after a certain other ends.
             elif 'follow' == struct['offset_type'] and \
             key not in self.last_struct_match_miss and \
-            self.match_first_byte(
+            self.match_byte(
                 self.chunk_finder.peek(), key, struct ) and \
             self.last_struct in struct['follows']:
                 logger.debug( 'struct %s follows struct %s',
@@ -355,10 +379,12 @@ class FileParser( object ):
             # file.
             elif 'offset_field' in struct and \
             [x for x in self.storage.get_field(
-            struct['offset_field'] ) if x == self.bytes_written]:
+                struct['offset_field'][0], struct['offset_field'][1] ) \
+            if x == self.bytes_written]:
                 logger.debug( 'struct %s starts at stored field: %d',
                     key, self.storage.get_field(
-                    struct['offset_field'] )[0] )
+                        struct['offset_field'][0], struct['offset_field'][1]
+                    )[0] )
                 self.add_span_struct( key, **struct )
                 break
 
@@ -373,7 +399,8 @@ class FileParser( object ):
             logger.debug( 'field %s has no count field.', key )
             return -1
 
-        count_field_storage = self.storage.get_field( field['count_field'] )
+        count_field_storage = self.storage.get_field(
+            field['count_field'][0], field['count_field'][1] )
 
         # Tie count field to specific *instance* of a struct if that
         # was specified...
@@ -426,7 +453,9 @@ class FileParser( object ):
                 self.last_field[0],
                 self.last_field[1]['counts_written'],
                 self.storage.get_field(
-                    self.last_field[1]['count_field'] )[-1],
+                    self.last_field[1]['count_field'][0],
+                    self.last_field[1]['count_field'][1]
+                )[-1],
                 self.last_field[1]['count_mod'] )
 
             # Refurbish the span to be repeated again.
@@ -444,7 +473,16 @@ class FileParser( object ):
         for key in open_struct['fields']:
             field = open_struct['fields'][key]
 
+            # Adding a new condition here should also be reflected in
+            # close_span() so we know if a field won't appear and the struct
+            # has ended!
+
             if 'offset' in field and \
+            ('match_field' not in field or \
+            self.match_byte(
+                self.storage.get_field(
+                    open_struct['class'], field['match_field'] ),
+                field['match_field'], field, 'match_field' )) and \
             open_struct['bytes_written'] == field['offset']:
                 self.add_span_field( key, **field )
                 logger.debug( 'removing used field: %s', key )
@@ -454,8 +492,13 @@ class FileParser( object ):
                 self._set_last_field( (key, open_struct['fields'][key]) )
                 del open_struct['fields'][key]
                 break
-        
+
             elif 'follows' in field and \
+            ('match_field' not in field or \
+            self.match_byte(
+                self.storage.get_field(
+                    open_struct['class'], field['match_field'] ),
+                field['match_field'], field, 'match_field' )) and \
             self.last_field[0] == field['follows']:
 
                 self.add_span_field( key, **field )

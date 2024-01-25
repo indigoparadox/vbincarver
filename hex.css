@@ -95,7 +95,7 @@ body {
    background: saddlebrown;
 }
 
-.hex-struct-bmp-palette, .hex-struct-event {
+.hex-struct-bmp-palette, .hex-struct-event, .hex-struct-small-event {
    background: darkred;
 }
 
