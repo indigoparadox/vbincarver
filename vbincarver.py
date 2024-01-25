@@ -122,6 +122,8 @@ class FileParser( object ):
 
         self.bytes_written = 0
         self.last_struct = ''
+        self.last_struct_match_miss = []
+        self.last_field = None
         self.spans_open = []
         self.in_file = in_file
         self.format_data = format_data
@@ -130,7 +132,7 @@ class FileParser( object ):
         self.chunk_finder = ChunkFinder( self )
 
     def _add_span( self, type_in : str, class_in : str ):
-        logger = logging.getLogger( 'parser.add_span' )
+        logger = logging.getLogger( 'parser.add.span' )
         logger.debug( 'adding span for %s: %s',
             type_in, class_in )
         span = {
@@ -142,55 +144,53 @@ class FileParser( object ):
         assert( len( self.spans_open ) < 3 )
         return span
 
+    def _set_last_field( self, field_tuple : tuple ):
+        logger = logging.getLogger( 'parser.set.last_field' )
+        logger.debug( 'resetting last field to %s (was %s)...',
+            field_tuple[0] if field_tuple else None,
+            self.last_field[0] if self.last_field else None )
+        self.last_field = field_tuple
+
     def add_span_struct( self, class_in : str, **kwargs ):
+        
+        logger = logging.getLogger( 'parser.add.struct' )
+
         for span in self.spans_open:
             assert( 'struct' != span['class'] )
+
         self.last_struct = class_in
+        self.last_struct_match_miss = []
+
+        self._set_last_field( None )
+
         span = self._add_span( 'struct', class_in )
         assert( 'fields' in kwargs )
         span['fields'] = dict( kwargs['fields'] ) # Copy!
+        for field in span['fields']:
+            span['fields'][field]['counts_written'] = 0
         if 'check_size' in kwargs:
             span['check_size'] = kwargs['check_size']
 
     def add_span_field( self, class_in : str, **kwargs ):
+
+        logger = logging.getLogger( 'parser.add.field' )
         
         # Grab the parent struct class.
         assert( 'struct' == self.spans_open[-1]['type'] )
-        struct_class = self.spans_open[-1]['class']
 
         span = self._add_span( 'field', class_in )
-        # TODO: String spans?
-        span['contents'] = 0
-        span['parent'] = struct_class
+        span['lsbf'] = kwargs['lsbf']
+        span['count_mod'] = kwargs['count_mod']
+        span['summarize'] = kwargs['summarize']
+        span['hidden'] = kwargs['hidden']
+        span['format'] = kwargs['format']
+        span['term_style'] = kwargs['term_style']
+        span['counts_written'] = kwargs['counts_written']
+        span['parent'] = kwargs['parent']
         if 'size' in kwargs:
             span['size'] = kwargs['size']
-        span['counts_written'] = 0
-        if 'lsbf' in kwargs:
-            span['lsbf'] = kwargs['lsbf']
-        else:
-            span['lsbf'] = False
         if 'count_field' in kwargs:
-            span['count_field'] = kwargs['count_field'].split( '/' )
-        if 'count_mod' in kwargs:
-            span['count_mod'] = kwargs['count_mod']
-        else:
-            span['count_mod'] = 'count_field' # Pass straight thru eval().
-        if 'summarize' in kwargs:
-            span['summarize'] = kwargs['summarize']
-        else:
-            span['summarize'] = 'default'
-        if 'hidden' in kwargs:
-            span['hidden'] = kwargs['hidden']
-        else:
-            span['hidden'] = False
-        if 'format' in kwargs:
-            span['format'] = kwargs['format']
-        else:
-            span['format'] = 'number'
-        if 'null_term' in kwargs:
-            span['null_term'] = kwargs['null_term']
-        else:
-            span['null_term'] = False
+            span['count_field'] = kwargs['count_field']
 
         # Initialize contents correctly for format.
         if 'string' == span['format']:
@@ -238,7 +238,8 @@ class FileParser( object ):
 
             # Parent struct has no more fields. Close the parent
             # struct.
-            self.close_span( -1 )
+            if not self._last_field_repeats():
+                self.close_span( -1 )
 
     def close_span( self, idx: int ):
     
@@ -265,64 +266,11 @@ class FileParser( object ):
         self.storage.store_field(
             span['parent'], span['class'], span['contents'] )
 
-        # Debug for the gnarly index below.
-        if 'count_field' in span and \
-        '#' in span['count_field'][1]:
-            try:
-                logger.debug( 'gnarly counts written for %s: %d',
-                    re.sub( '.*#', '', span['count_field'][1] ),
-                    self.format_data['structs'][
-                        re.sub( '.*#', '', span['count_field'][1] )
-                    ]['counts_written'] - 1 )
-                logger.debug( 'gnarly struct count: %d',
-                    self.storage.get_field( span['count_field'] )[
-                        self.format_data['structs'][
-                            re.sub( '.*#', '', span['count_field'][1] )
-                        ]['counts_written'] - 1 \
-                    ] )
-            except IndexError as e:
-                logger.exception( e )
-                pass
-
-        # This is kinda gnarly, but if there's a #struct_name in
-        # the count_field, then we want to subscript the count_field
-        # by the number of that #struct_name read so far, and then
-        # use the value stored in the copy of the struct *at that
-        # subscripted index* to check if we're still repeating.
-        if 'count_field' in span and \
-        eval( span['count_mod'],
-            {},
-            {'count_field':
-                self.storage.get_field( span['count_field'] )[
-                    self.format_data['structs'][
-                        re.sub( '.*#', '', span['count_field'][1] )
-                    ]['counts_written'] - 1 \
-                    if '#' in span['count_field'][1] else -1
-                ] \
-            } \
-        ) > span['counts_written'] + 1:
-            # If this is a field, update counts written and restart
-            # if the field says we have some left.
-
-            #logger.debug( 'repeating span %s (%d/%d(%d))...',
-            #    span['class'],
-            #    span['counts_written'],
-            #    self.storage.get_field(
-            #        span['count_field'] )[-1],
-            #    span['count_mod'] )
-
-            # Refurbish the span to be repeated again.
-            #self.format_span( span )
-            span['contents'] = 0
-            span['bytes_written'] = 0
-            span['counts_written'] += 1
-    
-        else:
-            self._pop_span()
+        self._pop_span()
 
     def select_span_struct( self ):
 
-        logger = logging.getLogger( 'parser.select_span.struct' )
+        logger = logging.getLogger( 'parser.select.span.struct' )
 
         assert( 0 == len( self.spans_open ) )
 
@@ -354,6 +302,7 @@ class FileParser( object ):
             # Struct that repeats based on contents of other field.
             elif self.last_struct == key and \
             'count_field' in struct and \
+            key not in self.last_struct_match_miss and \
             self.storage.get_field( struct['count_field'] )[-1] > \
             struct['counts_written']:
                 logger.debug( 'struct %s repeats %d more times',
@@ -365,11 +314,10 @@ class FileParser( object ):
 
             # Struct that starts after a certain other ends.
             elif 'follow' == struct['offset_type'] and \
+            key not in self.last_struct_match_miss and \
             (self.chunk_finder.peek() not in struct['first_byte_not'] or \
             self.chunk_finder.peek() in struct['first_byte_is']) and \
             self.last_struct in struct['follows']:
-                print( 'fb: {}'.format( hex( self.chunk_finder.peek() ) ) )
-                print( 'fbn: {}'.format( struct['first_byte_not'] ) )
                 logger.debug( 'struct %s follows struct %s',
                     key, self.last_struct )
                 self.add_span_struct( key, **struct )
@@ -386,21 +334,121 @@ class FileParser( object ):
                 self.add_span_struct( key, **struct )
                 break
 
+            self.last_struct_match_miss.append( key )
+
+    def lookup_count_field( self, key : str, field : dict ):
+
+        logger = logging.getLogger( 'parser.repeats.field' )
+
+        if 'count_field' not in field:
+            logger.debug( 'field %s has no count field.', key )
+            return -1
+
+        count_field_storage = self.storage.get_field( field['count_field'] )
+
+        # Tie count field to specific *instance* of a struct if that
+        # was specified...
+        count_idx = -1
+        if '#' in field['count_field'][1]:
+            count_struct_key = re.sub( '.*#', '', field['count_field'][1] )
+            count_struct = self.format_data['structs'][count_struct_key]
+            count_idx = count_struct['counts_written'] - 1
+            logger.debug( 'parsed count index %d from structs[%s]...',
+                count_idx, count_struct_key )
+
+        return eval( field['count_mod'],
+            {}, {'count_field': count_field_storage[count_idx] } )
+
+    def _last_field_repeats( self ):
+
+        logger = logging.getLogger( 'parser.repeats.field' )
+
+        key = self.last_field[0]
+        field = self.last_field[1]
+
+        logger.debug( 'checking if %s repeats...', key )
+
+        repeat_count = self.lookup_count_field( key, field )
+        if 0 > repeat_count:
+            return False
+
+        if repeat_count <= self.last_field[1]['counts_written']:
+            logger.debug( 'repeat count %d satisfied by written count %d.',
+                repeat_count, self.last_field[1]['counts_written'] )
+            return False
+
+        logger.debug( 'repeat count %d higher than written count %d...',
+            repeat_count, self.last_field[1]['counts_written'] )
+        return True
+
     def select_span_field( self, open_struct : dict ):
         
-        logger = logging.getLogger( 'parser.select_span.field' )
+        logger = logging.getLogger( 'parser.select.span.field' )
 
         assert( 'struct' == open_struct['type'] )
 
+        logger.debug( 'selecting field...' )
+
+        if self.last_field and self._last_field_repeats():
+            # If this is a field, update counts written and restart
+            # if the field says we have some left.
+
+            logger.debug( 'repeating span %s (%d/%d(%s))...',
+                self.last_field[0],
+                self.last_field[1]['counts_written'],
+                self.storage.get_field(
+                    self.last_field[1]['count_field'] )[-1],
+                self.last_field[1]['count_mod'] )
+
+            # Refurbish the span to be repeated again.
+            self.last_field[1]['counts_written'] += 1
+            logger.debug(
+                'incrementing written count on field %s to %d...',
+                self.last_field[0], self.last_field[1]['counts_written'] )
+            self.add_span_field(
+                self.last_field[0], **(self.last_field[1]) )
+
+            return
+
+        # If there's nothing to repeat, then check the open struct for
+        # new fields.
         for key in open_struct['fields']:
             field = open_struct['fields'][key]
-            if open_struct['bytes_written'] == field['offset']:
+
+            if 'count_field' in field and \
+            0 == self.lookup_count_field( key, field ):
+                # This field should never appear!
+                del open_struct['fields'][key]
+
+                if not open_struct['fields']:
+                    # No fields left!
+                    self.close_span( -1 )
+                break
+
+            elif 'offset' in field and \
+            open_struct['bytes_written'] == field['offset']:
                 self.add_span_field( key, **field )
                 logger.debug( 'removing used field: %s', key )
 
                 # Remove field now that we've written it.
+                open_struct['fields'][key]['counts_written'] += 1
+                self._set_last_field( (key, open_struct['fields'][key]) )
                 del open_struct['fields'][key]
                 break
+        
+            elif 'follows' in field and \
+            self.last_field[0] == field['follows']:
+
+                self.add_span_field( key, **field )
+                logger.debug( 'removing used field: %s', key )
+
+                # Remove field now that we've written it.
+                open_struct['fields'][key]['counts_written'] += 1
+                self._set_last_field( (key, open_struct['fields'][key]) )
+                del open_struct['fields'][key]
+                break
+
+        logger.debug( 'selecting field complete.' )
 
     def acknowledge_byte( self, byte_in : int ):
 
@@ -452,6 +500,15 @@ class FileParser( object ):
             logger.debug( 'spans open: %s', ','.join( 
                 [x['class'] for x in self.spans_open] ) )
 
+        # Not an elif, as it can run after a new struct is added earlier
+        # in this method.
+        if self.spans_open and 'struct' == self.spans_open[-1]['type']:
+            # We're inside a struct but not a field... so find one!
+            logger.debug( 'selecting field...' )
+            self.select_span_field( self.spans_open[-1] )
+        else:
+            logger.debug( 'not selecting field!' )
+
         # Don't infinite loop if we're pushing chunk bytes in.
         if find_chunk:
             file_byte = self.chunk_finder.push( file_byte_in )
@@ -462,12 +519,8 @@ class FileParser( object ):
             file_byte = file_byte_in
             logger.debug( 'skipping chunk finder: %s', hex( file_byte ) )
     
-        # Not an elif, as it can run after a new struct is added earlier
-        # in this method.
-        if self.spans_open and 'struct' == self.spans_open[-1]['type']:
-            # We're inside a struct but not a field... so find one!
-            logger.debug( 'selecting field...' )
-            self.select_span_field( self.spans_open[-1] )
+        # TODO ('var' == span['term_style'] and 0x80 != (0x80 & file_byte)):
+        # OR away continue byte?
     
         if -1 != file_byte:
             logger.debug( 'acknowledging byte %s...', hex( file_byte ) )
@@ -479,11 +532,13 @@ class FileParser( object ):
             span = self.spans_open[idx]
 
             if 'field' != span['type']:
-                logger.debug( 'skipping span %s...', span['class'] )
+                logger.debug( 'skipping closing span %s...', span['class'] )
                 continue
 
-            if (span['null_term'] and 0 == file_byte) or \
-            (not span['null_term'] and span['bytes_written'] >= span['size']):
+            if ('on_null' == span['term_style'] and 0 == file_byte) or \
+            ('static' == span['term_style'] and \
+            span['bytes_written'] >= span['size']) or \
+            ('var' == span['term_style'] and 0x80 != (0x80 & file_byte)):
 
                 if span['summarize']:
                     # Store info for a summarization stanza.
@@ -505,12 +560,13 @@ class FileParser( object ):
                     logger.debug( 'no spans left to process!' )
                     break
 
+        logger.debug( 'processing byte complete!' )
+
     def parse( self ):
 
         logger = logging.getLogger( 'parser.parse' )
 
         for file_byte in self.in_file:
-            #print( hex( file_byte ) )
             self._parse_byte( file_byte )
 
         # Empty out the chunk finder!
@@ -668,13 +724,22 @@ def main():
         parser_logger = logging.getLogger( 'parser.parse.byte' )
         parser_logger.setLevel( level=logging.INFO )
 
+        parser_logger = logging.getLogger( 'parser.add' )
+        parser_logger.setLevel( level=logging.INFO )
+
+        parser_logger = logging.getLogger( 'parser.select' )
+        parser_logger.setLevel( level=logging.INFO )
+
+        parser_logger = logging.getLogger( 'parser.repeats' )
+        parser_logger.setLevel( level=logging.INFO )
+
     logger.debug( 'starting...' )
 
     format_data = None
     with open( args.format, 'r' ) as format_file:
         format_data = yaml.load( format_file, Loader=yaml.Loader )
-        for key in format_data['structs']:
-            struct_def = format_data['structs'][key]
+        for struct_key in format_data['structs']:
+            struct_def = format_data['structs'][struct_key]
             struct_def['counts_written'] = 0
             if 'offset_field' in struct_def:
                 struct_def['offset_field'] = \
@@ -686,6 +751,26 @@ def main():
                 struct_def['first_byte_not'] = []
             if 'first_byte_is' not in struct_def:
                 struct_def['first_byte_is'] = []
+
+            for field_key in struct_def['fields']:
+                field_def = struct_def['fields'][field_key]
+                field_def['parent'] = struct_key
+                if 'count_field' in field_def:
+                    field_def['count_field'] = \
+                        field_def['count_field'].split( '/' )
+                if 'count_mod' not in field_def:
+                    field_def['count_mod'] = \
+                        'count_field' # Pass straight thru eval().
+                if 'lsbf' not in field_def:
+                    field_def['lsbf'] = False
+                if 'summarize' not in field_def:
+                    field_def['summarize'] = 'default'
+                if 'hidden' not in field_def:
+                    field_def['hidden'] = False
+                if 'format' not in field_def:
+                    field_def['format'] = 'number'
+                if 'term_style' not in field_def:
+                    field_def['term_style'] = 'static'
 
     with open( args.out_file, 'w' ) as out_file:
         with open( args.parse_file, 'rb' ) as parse_file:

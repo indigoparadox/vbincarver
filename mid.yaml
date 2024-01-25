@@ -40,11 +40,11 @@ structs:
       fields:
          delta_time_val:
             offset: 0
-            null_term: true
+            term_style: var
             summarize: false
    event:
       offset_type: follow
-      follows: []
+      follows: [delta_time]
       check_size: 6
       first_byte_not:
          - 0xff
@@ -67,11 +67,19 @@ structs:
       first_byte_is:
          - 0xff
       fields:
-         type:
+         ff:
             offset: 0
             size: 1
             summarize: false
-         data:
+         type:
             offset: 1
+            size: 1
             summarize: false
-            null_term: true
+         length:
+            offset: 2
+            summarize: false
+            term_style: var
+         data:
+            size: 1
+            count_field: meta_event/length
+            follows: length

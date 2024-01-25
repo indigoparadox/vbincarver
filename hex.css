@@ -95,11 +95,11 @@ body {
    background: saddlebrown;
 }
 
-.hex-struct-bmp-palette, .hex-struct-event, .hex-struct-meta-event {
+.hex-struct-bmp-palette, .hex-struct-event {
    background: darkred;
 }
 
-.hex-struct-bmp-pixels {
+.hex-struct-bmp-pixels, .hex-struct-meta-event {
    background: darkviolet;
 }
 
