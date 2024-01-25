@@ -68,10 +68,6 @@ def main():
             if 'count_field' in struct_def:
                 struct_def['count_field'] = \
                     struct_def['count_field'].split( '/' )
-            if 'first_byte_not' not in struct_def:
-                struct_def['first_byte_not'] = []
-            if 'first_byte_is' not in struct_def:
-                struct_def['first_byte_is'] = []
 
             for field_key in struct_def['fields']:
                 field_def = struct_def['fields'][field_key]

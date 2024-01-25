@@ -265,16 +265,17 @@ class FileParser( object ):
         logger = logging.getLogger( 'parser.select.span.struct' )
 
         if 'first_byte_not' in struct and c in struct['first_byte_not']:
-            logger.debug( 'struct %s first byte is %s: negative match (%s)!',
+            logger.debug(
+                'struct %s first byte is %s: negative match (not %s)!',
                 key, hex( c ), ','.join( 
                     [hex( x ) for x in struct['first_byte_not']] ) )
             return False
 
-        if 'first_byte_is' in struct and c in struct['first_byte_is']:
-            logger.debug( 'struct %s first byte is %s: positive match (%s)!',
+        if 'first_byte_is' in struct and c not in struct['first_byte_is']:
+            logger.debug( 'struct %s first byte is %s: negative match (%s)!',
                 key, hex( c ), ','.join(
                     [hex( x ) for x in struct['first_byte_is']] ) )
-            return True
+            return False
 
         return True
 

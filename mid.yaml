@@ -48,6 +48,9 @@ structs:
       check_size: 6
       first_byte_not:
          - 0xff
+         - 0xd0
+         - 0xc0
+         - 0x00
       fields:
          type_channel:
             offset: 0
