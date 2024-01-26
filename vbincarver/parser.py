@@ -1,6 +1,7 @@
 
 import logging
 import re
+import pprint
 from collections import OrderedDict
 
 class FileParserStorage( object ):
@@ -20,8 +21,8 @@ class FileParserStorage( object ):
         logger.debug( 'getting field: %s/%s', struct_key, field_key )
 
         # We don't process the #-replacer here, so ditch it for now.
-        key = (struct_key, re.sub( '#.*', '', field_key ))
-        
+        field_key = re.sub( '#.*', '', field_key )
+
         try:
             return self.field_storage[struct_key]['fields'][field_key]
         except KeyError as e:
@@ -250,8 +251,9 @@ class FileParser( object ):
                 if 'match_field' in field and \
                 not self.match_byte(
                 self.storage.get_field(
-                    self.spans_open[-1]['class'], field['match_field'] ),
-                field['match_field'], field, 'match_field' ):
+                    field['match_field'][0],
+                    field['match_field'][1] ),
+                field['match_field'][1], field, 'match_field' ):
                     # This field should never appear!
                     del self.spans_open[-1]['fields'][key]
 
@@ -313,6 +315,20 @@ class FileParser( object ):
                 '%s %s byte is %s (AND): negative match (%s)!',
                 key, field_match, hex( c ), ','.join(
                     [hex( x ) for x in span[field_match + '_byte_is_and']] ) )
+            return False
+
+        if field_match + '_byte_gt' in span and \
+        c <= span[field_match + '_byte_gt']:
+            logger.debug( '%s %s byte is %s: negative match (%s)>',
+                key, field_match, hex( c ),
+                hex( span[field_match + '_byte_gt'] ) )
+            return False
+
+        if field_match + '_byte_lt' in span and \
+        c >= span[field_match + '_byte_lt']:
+            logger.debug( '%s %s byte is %s: negative match (%s)<',
+                key, field_match, hex( c ),
+                hex( span[field_match + '_byte_lt'] ) )
             return False
 
         return True
@@ -481,8 +497,8 @@ class FileParser( object ):
             ('match_field' not in field or \
             self.match_byte(
                 self.storage.get_field(
-                    open_struct['class'], field['match_field'] ),
-                field['match_field'], field, 'match_field' )) and \
+                    field['match_field'][0], field['match_field'][1] ),
+                field['match_field'][1], field, 'match_field' )) and \
             open_struct['bytes_written'] == field['offset']:
                 self.add_span_field( key, **field )
                 logger.debug( 'removing used field: %s', key )
@@ -497,8 +513,8 @@ class FileParser( object ):
             ('match_field' not in field or \
             self.match_byte(
                 self.storage.get_field(
-                    open_struct['class'], field['match_field'] ),
-                field['match_field'], field, 'match_field' )) and \
+                    field['match_field'][0], field['match_field'][1] ),
+                field['match_field'][1], field, 'match_field' )) and \
             self.last_field[0] == field['follows']:
 
                 self.add_span_field( key, **field )

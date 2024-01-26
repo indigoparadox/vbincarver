@@ -95,11 +95,15 @@ body {
    background: saddlebrown;
 }
 
-.hex-struct-bmp-palette, .hex-struct-event, .hex-struct-small-event {
+.hex-struct-bmp-palette, .hex-struct-event, .hex-struct-poly {
    background: darkred;
 }
 
-.hex-struct-bmp-pixels, .hex-struct-meta-event {
+.hex-struct-bmp-pixels, .hex-struct-meta-event, .hex-struct-layr {
    background: darkviolet;
+}
+
+.hex-struct-running-event, .hex-struct-posn {
+   background: darkslateblue;
 }
 

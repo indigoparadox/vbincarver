@@ -37,6 +37,7 @@ structs:
          - track
          - event
          - meta_event
+         - running_event
       fields:
          delta_time_val:
             offset: 0
@@ -48,6 +49,7 @@ structs:
       follows: [delta_time]
       first_byte_not:
       - 0xff
+      first_byte_gt: 0x7f
       fields:
          type_channel:
             offset: 0
@@ -62,6 +64,23 @@ structs:
             size: 1
             summarize: false
             match_field: type_channel
+            match_field_byte_not_and:
+            - 0xc0
+            - 0xd0
+   running_event:
+      offset_type: follow
+      follows: [delta_time]
+      first_byte_lt: 0x80
+      fields:
+         param_1:
+            offset: 0
+            size: 1
+            summarize: false
+         param_2:
+            offset: 1
+            size: 1
+            summarize: false
+            match_field: event/type_channel
             match_field_byte_not_and:
             - 0xc0
             - 0xd0

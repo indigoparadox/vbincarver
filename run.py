@@ -88,6 +88,12 @@ def main():
                     field_def['format'] = 'number'
                 if 'term_style' not in field_def:
                     field_def['term_style'] = 'static'
+                if 'match_field' in field_def:
+                    field_def['match_field'] = \
+                        field_def['match_field'].split( '/' )
+                    if 2 > len( field_def['match_field'] ):
+                        field_def['match_field'] = \
+                            [struct_key, field_def['match_field'][0]]
 
     with open( args.out_file, 'w' ) as out_file:
         with open( args.parse_file, 'rb' ) as parse_file:
