@@ -107,3 +107,4 @@ structs:
             size: 1
             count_field: meta_event/length
             follows: length
+            summarize: false

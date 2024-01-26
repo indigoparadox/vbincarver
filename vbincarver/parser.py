@@ -282,6 +282,7 @@ class FileParser( object ):
 
         if type( c ) == list:
             c = c[-1]
+            logger.debug( 'interpreting list as: %s', hex( c ) )
 
         logger.debug( 'comparing byte: %s', hex( c ) )
 
