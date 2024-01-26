@@ -5,7 +5,7 @@ import argparse
 import logging
 import pprint
 from vbincarver.parser import FileParser
-from vbincarver.formatter import HexFormatter
+from vbincarver.formatter import HexFormatter, SummaryFormatter
 
 def main():
     parser = argparse.ArgumentParser()
@@ -108,67 +108,8 @@ def main():
             #printer = pprint.PrettyPrinter()
             #printer.pprint( file_parser.buffer )
 
-            storage = file_parser.storage
-
-            out_file.write( '<div class="hex-fields"><div>' )
-            last_struct = ''
-            for key in storage.byte_storage:
-                if storage.byte_storage[key]['struct'] != \
-                last_struct or \
-                storage.byte_storage[key]['sid'] != \
-                last_sid:
-
-                    scls = 'hex-struct-{}'.format(
-                        storage.byte_storage[key]['struct'] \
-                            .replace( '_', '-' ) )
-                    sid = scls + '-' + \
-                        str( storage.byte_storage[key]['sid'] )
-
-                    # Start a new struct.
-                    out_file.write( '<div class="spacer"></div>' )
-                    out_file.write(
-                        '</div><div class="hex-struct {} {}">'.format(
-                            scls, sid ) )
-                    out_file.write(
-                        '<h3 class="hex-struct-title">{}</h3>'.format(
-                            storage.byte_storage[key]['struct']
-                                ) )
-                    out_file.write(
-                        '<div class="hex-struct-sz">({} bytes)</div>'.format(
-    
-                        # Sum sizes of all fields in the struct.
-                        sum( [storage.byte_storage[x]['size'] \
-                            for x in storage.byte_storage \
-                                if storage.byte_storage[x]['struct'] == \
-                                    storage.byte_storage[key]['struct'] and \
-                                storage.byte_storage[x]['sid'] == \
-                                    storage.byte_storage[key]['sid']] )
-
-                                ) )
-
-                # Write the field.
-
-                hid = storage.byte_storage[key]['field']\
-                    .replace( '_', '-' )
-                    
-                out_file.write(
-                    '<div class="spacer"></div>' + \
-                    '<span class="hex-field hex-field-' + \
-                    hid + '">'
-                    '<span class="hex-label">' + \
-                        storage.byte_storage[key]['field'] + \
-                        '</span>' + \
-                    '<span class="hex-sz">(' + \
-                    str( storage.byte_storage[key]['size'] ) + \
-                        ' bytes)</span>' + \
-                    '<span class="hex-contents">' + \
-                    str( storage.byte_storage[key]['value'] ) + \
-                        '</span></span>' )
-
-                last_struct = storage.byte_storage[key]['struct']
-                last_sid = storage.byte_storage[key]['sid']
-
-            out_file.write( '<div class="spacer"></div></div></div>' )
+            formatter = SummaryFormatter( out_file, file_parser )
+            formatter.write_layout()
 
             out_file.write( '</body></html>' )
 
