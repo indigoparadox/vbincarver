@@ -63,11 +63,15 @@ def main():
         with open( args.parse_file, 'rb' ) as parse_file:
             file_parser = FileParser( parse_file.read(), format_data )
 
+            out_file.write( '<!DOCTYPE html>\n<html>\n<head>\n' )
+            out_file.write( '<link rel="stylesheet" href="hex.css" />\n' )
+            out_file.write( '<script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>\n' )
+            out_file.write( '<script src="hex.js"></script>\n' )
+            out_file.write( '</head>\n<body>\n' )
+
             file_parser.parse()
             formatter = HexFormatter( out_file, file_parser )
-            formatter.write_header()
             formatter.write_layout()
-            formatter.write_footer()
 
             #printer = pprint.PrettyPrinter()
             #printer.pprint( file_parser.buffer )

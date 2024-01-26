@@ -46,6 +46,11 @@ body {
    float: left;
 }
 
+.hex-struct-offset {
+   float: left;
+   margin-right: 10px;
+}
+
 .hex-struct-sz {
    float: right;
 }

@@ -53,7 +53,7 @@ class FileParserStorage( object ):
         bs_items[-1][1]['struct'] == struct and \
         bs_items[-1][1]['sid'] == sid:
             self.byte_storage[bs_items[-1][0]]['size'] += sz
-            self.byte_storage[bs_items[-1][0]]['value'] = ''
+            self.byte_storage[bs_items[-1][0]]['value'] = None
         else:
             self.byte_storage[offset] = {'struct': struct, 'size': sz,
                 'sid': sid, 'field': field, 'value': val}
