@@ -83,7 +83,10 @@ body {
 
 /* Specific Structs */
 
-.hex-struct-ico-head, .hex-struct-alt-map, .hex-struct-file-head {
+.hex-struct-ico-head,
+.hex-struct-alt-map,
+.hex-struct-file-head,
+.hex-struct-bmp-file {
    background: navy;
 }
 

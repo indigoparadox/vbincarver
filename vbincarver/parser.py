@@ -90,8 +90,11 @@ class ChunkFinder( object ):
 
         logger.debug( 'pushing %s on buffer...', hex( c ) )
         
-        self.magic_buf = self.magic_buf + chr( c )
-        if self.chunk_sz < len( self.magic_buf ):
+        # Only push positive bytes.
+        if 0 <= c:
+            self.magic_buf = self.magic_buf + chr( c )
+
+        if self.chunk_sz < len( self.magic_buf ) or 0 > c:
             # Drop first char and push up the start offset.
             self.start_offset += 1
             return self.pop()
@@ -286,6 +289,21 @@ class FileParser( object ):
 
         logger.debug( 'comparing byte: %s', hex( c ) )
 
+        if field_match + '_byte_is' in span and \
+        c not in span[field_match + '_byte_is']:
+            logger.debug( '%s %s byte is %s: negative match (%s)!',
+                key, field_match, hex( c ), ','.join(
+                    [hex( x ) for x in span[field_match + '_byte_is']] ) )
+            return False
+
+        if field_match + '_byte_is_and' in span and \
+        not [x for x in span[field_match + '_byte_is_and'] if x == c & x]:
+            logger.debug(
+                '%s %s byte is %s (AND): negative match (%s)!',
+                key, field_match, hex( c ), ','.join(
+                    [hex( x ) for x in span[field_match + '_byte_is_and']] ) )
+            return False
+
         if field_match + '_byte_not' in span and \
         c in span[field_match + '_byte_not']:
             logger.debug(
@@ -303,31 +321,16 @@ class FileParser( object ):
                         span[field_match + '_byte_not_and']] ) )
             return False
 
-        if field_match + '_byte_is' in span and \
-        c not in span[field_match + '_byte_is']:
-            logger.debug( '%s %s byte is %s: negative match (%s)!',
-                key, field_match, hex( c ), ','.join(
-                    [hex( x ) for x in span[field_match + '_byte_is']] ) )
-            return False
-
-        if field_match + '_byte_is_and' in span and \
-        not [x for x in span[field_match + '_byte_is_and'] if x == c & x]:
-            logger.debug(
-                '%s %s byte is %s (AND): negative match (%s)!',
-                key, field_match, hex( c ), ','.join(
-                    [hex( x ) for x in span[field_match + '_byte_is_and']] ) )
-            return False
-
         if field_match + '_byte_gt' in span and \
         c <= span[field_match + '_byte_gt']:
-            logger.debug( '%s %s byte is %s: negative match (%s)>',
+            logger.debug( '%s %s byte is %s: negative match (gt %s)!',
                 key, field_match, hex( c ),
                 hex( span[field_match + '_byte_gt'] ) )
             return False
 
         if field_match + '_byte_lt' in span and \
         c >= span[field_match + '_byte_lt']:
-            logger.debug( '%s %s byte is %s: negative match (%s)<',
+            logger.debug( '%s %s byte is %s: negative match (lt %s)!',
                 key, field_match, hex( c ),
                 hex( span[field_match + '_byte_lt'] ) )
             return False
@@ -341,6 +344,8 @@ class FileParser( object ):
         assert( 0 == len( self.spans_open ) )
 
         self.chunk_finder.dump()
+
+        logger.debug( 'next byte is: %s', hex( self.chunk_finder.peek() ) )
 
         # We're not inside a struct... So find one!
         for key in self.format_data['structs']:
@@ -381,17 +386,6 @@ class FileParser( object ):
                 self.add_span_struct( key, **struct )
                 break
 
-            # Struct that starts after a certain other ends.
-            elif 'follow' == struct['offset_type'] and \
-            key not in self.last_struct_match_miss and \
-            self.match_byte(
-                self.chunk_finder.peek(), key, struct ) and \
-            self.last_struct in struct['follows']:
-                logger.debug( 'struct %s follows struct %s',
-                    key, self.last_struct )
-                self.add_span_struct( key, **struct )
-                break
-
             # Struct that starts at a field mentioned elsewhere in the
             # file.
             elif 'offset_field' in struct and \
@@ -402,6 +396,17 @@ class FileParser( object ):
                     key, self.storage.get_field(
                         struct['offset_field'][0], struct['offset_field'][1]
                     )[0] )
+                self.add_span_struct( key, **struct )
+                break
+
+            # Struct that starts after a certain other ends.
+            elif 'follow' == struct['offset_type'] and \
+            key not in self.last_struct_match_miss and \
+            self.match_byte(
+                self.chunk_finder.peek(), key, struct ) and \
+            self.last_struct in struct['follows']:
+                logger.debug( 'struct %s follows struct %s',
+                    key, self.last_struct )
                 self.add_span_struct( key, **struct )
                 break
 
@@ -568,7 +573,7 @@ class FileParser( object ):
         for idx in range( len( self.spans_open ) - 1, -1, -1 ):
             self.spans_open[idx]['bytes_written'] += 1
 
-    def _parse_byte( self, file_byte_in : int, find_chunk : bool = True ):
+    def _parse_byte( self, file_byte_in : int ):
 
         logger = logging.getLogger( 'parser.parse.byte' )
 
@@ -589,14 +594,10 @@ class FileParser( object ):
             logger.debug( 'not selecting field!' )
 
         # Don't infinite loop if we're pushing chunk bytes in.
-        if find_chunk:
-            file_byte = self.chunk_finder.push( file_byte_in )
-            logger.debug(
-                'swapped %s for %s...',
-                hex( file_byte_in ), hex( file_byte ) )
-        else:
-            file_byte = file_byte_in
-            logger.debug( 'skipping chunk finder: %s', hex( file_byte ) )
+        file_byte = self.chunk_finder.push( file_byte_in )
+        logger.debug(
+            'swapped %s for %s...',
+            hex( file_byte_in ), hex( file_byte ) )
     
         # TODO ('var' == span['term_style'] and 0x80 != (0x80 & file_byte)):
         # OR away continue byte?
@@ -645,13 +646,18 @@ class FileParser( object ):
 
         logger = logging.getLogger( 'parser.parse' )
 
+        last_byte = None
         for file_byte in self.in_file:
             self._parse_byte( file_byte )
+            last_byte = file_byte
+
+        logger.debug( 'last byte was: %s, chunk_finder next byte is: %s',
+            last_byte, self.chunk_finder.peek() )
 
         # Empty out the chunk finder!
         while self.chunk_finder.has_bytes():
             logger.debug(
                 'shaking out the chunk finder (%d left!)...',
                 self.chunk_finder.has_bytes() )
-            self._parse_byte( self.chunk_finder.pop(), find_chunk=False )
+            self._parse_byte( -1 )
 

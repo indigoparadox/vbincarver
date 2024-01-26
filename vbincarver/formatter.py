@@ -8,6 +8,11 @@ class BytesFormatter( object ):
         self.out_file = out_file
         self.parser = parser
 
+    def close_span( self, ind : int = 0 ):
+        for i in range( 0, ind ):
+            self.out_file.write( ' ' )
+        self.out_file.write( '</span>\n' )
+
 class HexFormatter( BytesFormatter ):
 
     def __init__( self, out_file, parser : FileParser, column_len : int=20 ):
@@ -34,11 +39,6 @@ class HexFormatter( BytesFormatter ):
             self.open_span( 'struct', self.last_struct, self.last_struct_id )
         if self.last_field:
             self.open_span( 'field', self.last_field )
-
-    def close_span( self, ind : int = 0 ):
-        for i in range( 0, ind ):
-            self.out_file.write( ' ' )
-        self.out_file.write( '</span>\n' )
 
     def open_span(
         self, type_in : str, class_in : str, sid_in : int = 0, ind : int = 0

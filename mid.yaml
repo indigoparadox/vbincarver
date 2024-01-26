@@ -71,6 +71,8 @@ structs:
       offset_type: follow
       follows: [delta_time]
       first_byte_lt: 0x80
+      first_byte_not:
+      - 0xff
       fields:
          param_1:
             offset: 0
