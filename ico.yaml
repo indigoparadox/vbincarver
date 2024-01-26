@@ -1,5 +1,22 @@
 ---
+include:
+   - bmp.yaml
 structs:
+   # Override some facets of the bmp format for icons.
+   bmp_file:
+      offset_type: none
+   bmp_palette:
+      offset_type: follow
+      follows: [bmp_info]
+      fields:
+         color:
+            # Apparently the color count in bmp_info can just be zero!
+            count_field: ico_entry/ncolors#bmp_info
+   bmp_info:
+      offset_type: stored
+      offset_field: ico_entry/img_offset
+
+   # Icon-specific stuff.
    ico_head:
       offset: 0
       offset_type: static
@@ -50,72 +67,4 @@ structs:
             offset: 12
             size: 4
             lsbf: True
-   bmp_info:
-      offset_type: stored
-      offset_field: ico_entry/img_offset
-      fields:
-         struct_sz:
-            offset: 0
-            size: 4
-            lsbf: True
-         width:
-            offset: 4
-            size: 4
-            lsbf: True
-         height:
-            offset: 8
-            size: 4
-            lsbf: True
-         color_planes:
-            offset: 12
-            size: 2
-            lsbf: True
-         bpp:
-            offset: 14
-            size: 2
-            lsbf: True
-         compression:
-            offset: 16
-            size: 4
-            lsbf: True
-         img_sz:
-            offset: 20
-            size: 4
-            lsbf: True
-         hres:
-            offset: 24
-            size: 4
-            lsbf: True
-         vres:
-            offset: 28
-            size: 4
-            lsbf: True
-         ncolors:
-            offset: 32
-            size: 4
-            lsbf: True
-         nimp_colors:
-            offset: 36
-            size: 4
-            lsbf: True
-   bmp_palette:
-      offset_type: follow
-      follows: [bmp_info]
-      fields:
-         color:
-            # Apparently the color count in bmp_info can just be zero!
-            count_field: ico_entry/ncolors#bmp_info
-            offset: 0
-            size: 4
-            lsbf: True
-            summarize: sum_repeat
-   bmp_pixels:
-      offset_type: follow
-      follows: [bmp_palette]
-      fields:
-         px:
-            count_field: bmp_info/img_sz
-            offset: 0
-            size: 1
-            summarize: sum_repeat
 

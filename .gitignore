@@ -1,2 +1,7 @@
 *.ico
 *.html
+*.bmp
+*.mid
+*.VVR
+*.SC2
+__pycache__

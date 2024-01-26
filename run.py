@@ -6,6 +6,7 @@ import logging
 import pprint
 from vbincarver.parser import FileParser
 from vbincarver.formatter import HexFormatter, SummaryFormatter
+from vbincarver.config import FormatConfig
 
 def main():
     parser = argparse.ArgumentParser()
@@ -56,44 +57,7 @@ def main():
 
     logger.debug( 'starting...' )
 
-    format_data = None
-    with open( args.format, 'r' ) as format_file:
-        format_data = yaml.load( format_file, Loader=yaml.Loader )
-        for struct_key in format_data['structs']:
-            struct_def = format_data['structs'][struct_key]
-            struct_def['counts_written'] = 0
-            if 'offset_field' in struct_def:
-                struct_def['offset_field'] = \
-                    struct_def['offset_field'].split( '/' )
-            if 'count_field' in struct_def:
-                struct_def['count_field'] = \
-                    struct_def['count_field'].split( '/' )
-
-            for field_key in struct_def['fields']:
-                field_def = struct_def['fields'][field_key]
-                field_def['parent'] = struct_key
-                if 'count_field' in field_def:
-                    field_def['count_field'] = \
-                        field_def['count_field'].split( '/' )
-                if 'count_mod' not in field_def:
-                    field_def['count_mod'] = \
-                        'count_field' # Pass straight thru eval().
-                if 'lsbf' not in field_def:
-                    field_def['lsbf'] = False
-                if 'summarize' not in field_def:
-                    field_def['summarize'] = 'default'
-                if 'hidden' not in field_def:
-                    field_def['hidden'] = False
-                if 'format' not in field_def:
-                    field_def['format'] = 'number'
-                if 'term_style' not in field_def:
-                    field_def['term_style'] = 'static'
-                if 'match_field' in field_def:
-                    field_def['match_field'] = \
-                        field_def['match_field'].split( '/' )
-                    if 2 > len( field_def['match_field'] ):
-                        field_def['match_field'] = \
-                            [struct_key, field_def['match_field'][0]]
+    format_data = FormatConfig( args.format )
 
     with open( args.out_file, 'w' ) as out_file:
         with open( args.parse_file, 'rb' ) as parse_file:
