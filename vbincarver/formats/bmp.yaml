@@ -1,4 +1,5 @@
 ---
+mime: image/bmp
 structs:
    bmp_file:
       offset_type: static

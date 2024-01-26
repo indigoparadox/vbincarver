@@ -1,33 +1,45 @@
 
+import os
 import yaml
 import logging
 import pprint
+import importlib.resources
 
 class FormatConfig( object ):
 
-    def __init__( self, format_path ):
+    def open_format( self, path ):
+        try:
+            # TODO: This is untested since we're on Python 3.8.
+            return importlib.resources.files( __package__ + '.formats' )\
+                .joinpath( path ).open( 'r', encoding=encoding )
+        except AttributeError:
+            return importlib.resources.read_text(
+                __package__ + '.formats', path )
+
+    def __init__( self, parse_path : str, format_name : str = None ):
 
         logger = logging.getLogger( 'config.format' )
 
-        with open( format_path, 'r' ) as format_file:
-            format_data = yaml.load( format_file, Loader=yaml.Loader )
+        format_file = None
+        if format_name:
+            format_file = self.open_format( format_name + '.yaml' )
+        else:
+            file_ext = os.path.splitext( parse_path )[1]
+            format_file = self.open_format( file_ext[1:].lower() + '.yaml' )
+        assert( None != format_file )
 
-            self.format_data = format_data
+        self.format_data = yaml.load( format_file, Loader=yaml.Loader )
 
-            # Merge included files.
-            if 'include' in format_data:
-                for src in format_data['include']:
-                    with open( src, 'r' ) as import_file:
-                        logger.debug( 'importing %s...', src )
-                        import_data = yaml.load(
-                            import_file, Loader=yaml.Loader )
-                        self.merge_subtree( import_data )
+        # Merge included files.
+        if 'include' in self.format_data:
+            for src in self.format_data['include']:
+                import_file = self.open_format( src )
+                logger.debug( 'importing %s...', src )
+                import_data = yaml.load( import_file, Loader=yaml.Loader )
+                self.merge_subtree( import_data )
 
-            # Shore up data.
-            self.fix_missing_fields( self.format_data )
-    
-            printer = pprint.PrettyPrinter()
-            printer.pprint( format_data )
+        # Shore up data.
+        self.fix_missing_fields( self.format_data )
 
     def fix_missing_fields( self, format_data : dict ):
 

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import yaml
 import argparse
 import logging
 import pprint
@@ -11,8 +10,8 @@ from vbincarver.config import FormatConfig
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument( '-f', '--format', action='store', required=True,
-        help='Path to the formatting YAML grammar file.' )
+    parser.add_argument( '-f', '--format', action='store',
+        help='Name of the format to analyze.' )
 
     parser.add_argument(
         '-o', '--out-file', action='store', default='output.html',
@@ -57,7 +56,7 @@ def main():
 
     logger.debug( 'starting...' )
 
-    format_data = FormatConfig( args.format )
+    format_data = FormatConfig( args.parse_file, args.format )
 
     with open( args.out_file, 'w' ) as out_file:
         with open( args.parse_file, 'rb' ) as parse_file:

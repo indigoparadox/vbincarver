@@ -1,4 +1,5 @@
 ---
+mime: audio/midi
 structs:
    file_head:
       offset_type: chunk

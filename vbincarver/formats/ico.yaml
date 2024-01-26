@@ -1,4 +1,5 @@
 ---
+mime: image/vnd.microsoft.icon
 include:
    - bmp.yaml
 structs:
