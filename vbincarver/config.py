@@ -54,6 +54,10 @@ class FormatConfig( object ):
             if 'count_field' in struct_def:
                 struct_def['count_field'] = \
                     struct_def['count_field'].split( '/' )
+            if 'summarize' not in struct_def:
+                struct_def['summarize'] = 'default'
+            assert( struct_def['summarize'] in \
+                ['sum_repeat', 'first_only', 'none', 'no_fields', 'default'] )
 
             for field_key in struct_def['fields']:
                 field_def = struct_def['fields'][field_key]
@@ -66,8 +70,6 @@ class FormatConfig( object ):
                         'count_field' # Pass straight thru eval().
                 if 'lsbf' not in field_def:
                     field_def['lsbf'] = False
-                if 'summarize' not in field_def:
-                    field_def['summarize'] = 'default'
                 if 'hidden' not in field_def:
                     field_def['hidden'] = False
                 if 'format' not in field_def:
@@ -80,6 +82,8 @@ class FormatConfig( object ):
                     if 2 > len( field_def['match_field'] ):
                         field_def['match_field'] = \
                             [struct_key, field_def['match_field'][0]]
+                if 'mod_contents' not in field_def:
+                    field_def['mod_contents'] = 'field_contents'
 
     def merge_subtree(
         self, import_data : dict, format_key : str = 'root',

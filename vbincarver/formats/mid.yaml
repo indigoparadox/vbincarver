@@ -34,6 +34,7 @@ structs:
             size: 4
    delta_time:
       offset_type: follow
+      summarize: first_only
       follows:
          - track
          - event
@@ -44,26 +45,23 @@ structs:
             offset: 0
             term_style: var
             term_max: 4
-            summarize: false
    event:
       offset_type: follow
       follows: [delta_time]
       first_byte_not:
       - 0xff
       first_byte_gt: 0x7f
+      summarize: first_only
       fields:
          type_channel:
             offset: 0
             size: 1
-            summarize: false
          param_1:
             offset: 1
             size: 1
-            summarize: false
          param_2:
             offset: 2
             size: 1
-            summarize: false
             match_field: type_channel
             match_field_byte_not_and:
             - 0xc0
@@ -74,15 +72,14 @@ structs:
       first_byte_lt: 0x80
       first_byte_not:
       - 0xff
+      summarize: first_only
       fields:
          param_1:
             offset: 0
             size: 1
-            summarize: false
          param_2:
             offset: 1
             size: 1
-            summarize: false
             match_field: event/type_channel
             match_field_byte_not_and:
             - 0xc0
@@ -92,22 +89,19 @@ structs:
       follows: [delta_time]
       first_byte_is:
          - 0xff
+      summarize: first_only
       fields:
          ff:
             offset: 0
             size: 1
-            summarize: false
          type:
             offset: 1
             size: 1
-            summarize: false
          length:
             offset: 2
-            summarize: false
             term_style: var
             term_max: 4
          data:
             size: 1
             count_field: meta_event/length
             follows: length
-            summarize: false

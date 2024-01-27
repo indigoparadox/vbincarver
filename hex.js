@@ -5,7 +5,7 @@ $(document).ready( function() {
       var parent_class =
          $(this).parent( '.hex-struct' ).attr( 'class' ).split( /\s+/ );
       var sel_class = $(this).attr( 'class' ).split(/\s+/);
-      var sel_sel = '.' + parent_class[2] + ' .' + sel_class[1];
+      var sel_sel = '.' + parent_class[2] + ' .' + sel_class[2];
       console.log( sel_sel );
       $('.hex-field').removeClass( 'hex-selected' );
       $(sel_sel).addClass( 'hex-selected' );

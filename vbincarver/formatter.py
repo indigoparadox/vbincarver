@@ -93,6 +93,7 @@ class HexFormatter( BytesFormatter ):
                 indent=HexFormatter.INDENT_STRUCT )
         if self.last_field:
             self.open_struct_field_span( 'field', self.last_field,
+                self.last_field_id,
                 indent=HexFormatter.INDENT_FIELD )
 
     def open_struct_field_span(
@@ -103,6 +104,9 @@ class HexFormatter( BytesFormatter ):
         sid = ''
         if 'struct' == type_in:
             sid = ' hex-struct-{}-{}'.format(
+                class_in.replace( '_', '-' ), str( sid_in ) )
+        else:
+            sid = ' hex-field-{}-{}'.format(
                 class_in.replace( '_', '-' ), str( sid_in ) )
 
         self.open_span( 'hex-{} hex-{}-{}{}'.format(
@@ -150,7 +154,8 @@ class HexFormatter( BytesFormatter ):
             self.last_field_id != buf_tup[4]) and \
             buf_tup[3]:
                 self.open_struct_field_span(
-                    'field', buf_tup[3], indent=HexFormatter.INDENT_FIELD )
+                    'field', buf_tup[3], buf_tup[4],
+                    indent=HexFormatter.INDENT_FIELD )
 
             self.open_span( 
                 'byte' if buf_tup[1] else 'byte_free',
@@ -178,6 +183,12 @@ class SummaryFormatter( BytesFormatter ):
     INDENT_STRUCT = 1
     INDENT_FIELD = 2
     INDENT_FIELD_CONTENTS = 3
+
+    def format_field( self, contents, format_in : str ):
+        if 'color' == format_in:
+            contents = \
+                '<div style="background: #{}; width: 10px; height: 10px;"></div>'.format( hex( contents ).lstrip( '0x' ).zfill( 6 ) )
+        return contents
 
     def write_struct_head( self, offset : str, hex_byte : dict ):
 
@@ -236,26 +247,33 @@ class SummaryFormatter( BytesFormatter ):
                 self.close_div( indent=SummaryFormatter.INDENT_STRUCT )
                 self.write_struct_head( key, hex_byte )
 
-            # Write the field.
+            if 'no_fields' != hex_byte['summarize']:
+                # Write the field.
 
-            self.open_span(
-                'hex-field hex-field-{}'.format(
-                    self.format_class( hex_byte['field'] ) ),
-                indent=SummaryFormatter.INDENT_FIELD )
-            self.open_span(
-                'hex-label', contents=hex_byte['field'],
-                indent=SummaryFormatter.INDENT_FIELD_CONTENTS, close=True )
-            self.open_span(
-                'hex-sz', contents='({} bytes)'.format(
-                    str( hex_byte['size'] ) ),
-                indent=SummaryFormatter.INDENT_FIELD_CONTENTS, close=True )
-            self.open_span(
-                'hex-contents',
-                contents=hex_byte['value'],
-                indent=SummaryFormatter.INDENT_FIELD_CONTENTS, close=True )
-            self.close_span( indent=SummaryFormatter.INDENT_FIELD )
+                self.open_span(
+                    'hex-field hex-field-{} hex-field-{}-{}'.format(
+                        self.format_class( hex_byte['field'] ),
+                        self.format_class( hex_byte['field'] ),
+                        hex_byte['fid'] ),
+                    indent=SummaryFormatter.INDENT_FIELD )
+                self.open_span(
+                    'hex-label', contents=hex_byte['field'],
+                    indent=SummaryFormatter.INDENT_FIELD_CONTENTS,
+                    close=True )
+                self.open_span(
+                    'hex-sz', contents='({} bytes)'.format(
+                        str( hex_byte['size'] ) ),
+                    indent=SummaryFormatter.INDENT_FIELD_CONTENTS,
+                    close=True )
+                self.open_span(
+                    'hex-contents',
+                    contents=self.format_field(
+                        hex_byte['contents'], hex_byte['format'] ),
+                    indent=SummaryFormatter.INDENT_FIELD_CONTENTS,
+                    close=True )
+                self.close_span( indent=SummaryFormatter.INDENT_FIELD )
 
-            self.write_spacer( indent=SummaryFormatter.INDENT_FIELD )
+                self.write_spacer( indent=SummaryFormatter.INDENT_FIELD )
 
             last_struct = storage.byte_storage[key]['struct']
             last_sid = storage.byte_storage[key]['sid']

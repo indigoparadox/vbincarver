@@ -80,15 +80,18 @@ structs:
             count_field: bmp_info/ncolors
             offset: 0
             size: 4
-            lsbf: True
+            format: color
             summarize: sum_repeat
+            # Technically color in BMP is LSBF BGR, but we can simulate this
+            # by reading it as MSBF and shifting right one byte.
+            mod_contents: (field_contents >> 8)
    bmp_pixels:
       offset_type: follow
       follows: [bmp_palette]
+      summarize: no_fields
       fields:
          px:
             count_field: bmp_info/img_sz
             offset: 0
             size: 1
-            summarize: sum_repeat
 

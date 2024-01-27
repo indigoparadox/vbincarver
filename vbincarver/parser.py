@@ -9,6 +9,7 @@ class FileParserStorage( object ):
     def __init__( self ):
         self.field_storage = {}
         self.byte_storage = OrderedDict()
+        self.byte_storage_idx = {}
         self.sz_storage = {}
 
     def has_struct( self, key : str ):
@@ -29,34 +30,62 @@ class FileParserStorage( object ):
             logger.warn( e )
             return []
 
-    def store_field( self, struct_key : str, field_key : str, val : int ):
+    def store_field(
+        self, struct_key : str, field_key : str,
+        contents : int, mod_contents : str
+    ):
         logger = logging.getLogger( 'storage.store' )
-        logger.debug( 'storing field %s/%s value %s...',
-            struct_key, field_key, str( val ) )
+
+        contents = eval( mod_contents,
+            {}, {'field_contents': contents } )
+
+        logger.debug( 'storing field %s/%s contents %s...',
+            struct_key, field_key, str( contents ) )
+
         if struct_key in self.field_storage:
             if field_key in self.field_storage[struct_key]['fields']:
                 self.field_storage[struct_key]['fields'][field_key].append(
-                    val )
+                    contents )
             else:
-                self.field_storage[struct_key]['fields'][field_key] = [val]
+                self.field_storage[struct_key]['fields'][field_key] = \
+                    [contents]
         else:
-            self.field_storage[struct_key] = {'fields': {field_key: [val]}}
+            self.field_storage[struct_key] = \
+                {'fields': {field_key: [contents]}}
 
     def store_offset(
-        self, offset : int, sz : int, struct : str, field : str, val : int, 
-        sid: int, sum_to_last: bool
+        self, offset : int, sz : int, struct : str, field : str, fid : int,
+        contents : int, mod_contents : str, sid : int, summarize : str,
+        format_in : str
     ):
-        bs_items = list( self.byte_storage.items() )
-        if sum_to_last and \
+        prev_offset = list( self.byte_storage.items() )
+
+        contents = eval( mod_contents,
+            {}, {'field_contents': contents } )
+
+        if 'sum_repeat' == summarize and \
         0 < len( self.byte_storage ) and \
-        bs_items[-1][1]['field'] == field and \
-        bs_items[-1][1]['struct'] == struct and \
-        bs_items[-1][1]['sid'] == sid:
-            self.byte_storage[bs_items[-1][0]]['size'] += sz
-            self.byte_storage[bs_items[-1][0]]['value'] = None
+        prev_offset[1]['field'] == field and \
+        prev_offset[1]['struct'] == struct and \
+        prev_offset[1]['sid'] == sid:
+            self.byte_storage[prev_offset[0]]['size'] += sz
+            self.byte_storage[prev_offset[0]]['contents'] = None
+
+        elif 'first_only' == summarize and \
+        struct in self.byte_storage_idx and \
+        not sid in self.byte_storage_idx[struct]:
+            return
+
         else:
+            if struct in self.byte_storage_idx and \
+            not sid in self.byte_storage_idx[struct]:
+                self.byte_storage_idx[struct][sid] = offset
+            elif not struct in self.byte_storage_idx:
+                self.byte_storage_idx[struct] = {sid: offset}
+
             self.byte_storage[offset] = {'struct': struct, 'size': sz,
-                'sid': sid, 'field': field, 'value': val}
+                'sid': sid, 'field': field, 'fid': fid, 'contents': contents,
+                'summarize': summarize, 'format': format_in}
 
 class ChunkFinder( object ):
 
@@ -168,6 +197,7 @@ class FileParser( object ):
         span = self._add_span( 'struct', class_in )
         assert( 'fields' in kwargs )
         span['fields'] = dict( kwargs['fields'] ) # Copy!
+        span['summarize'] = kwargs['summarize']
         for field in span['fields']:
             span['fields'][field]['counts_written'] = 0
         if 'check_size' in kwargs:
@@ -183,12 +213,12 @@ class FileParser( object ):
         span = self._add_span( 'field', class_in )
         span['lsbf'] = kwargs['lsbf']
         span['count_mod'] = kwargs['count_mod']
-        span['summarize'] = kwargs['summarize']
         span['hidden'] = kwargs['hidden']
         span['format'] = kwargs['format']
         span['term_style'] = kwargs['term_style']
         span['counts_written'] = kwargs['counts_written']
         span['parent'] = kwargs['parent']
+        span['mod_contents'] = kwargs['mod_contents']
         if 'size' in kwargs:
             span['size'] = kwargs['size']
         if 'count_field' in kwargs:
@@ -199,9 +229,10 @@ class FileParser( object ):
             span['contents'] = ''
         elif 'number' == span['format']:
             span['contents'] = 0
+        elif 'color' == span['format']:
+            span['contents'] = 0
         else:
-            # This should never happen.
-            1 / 0
+            logger.error( 'invalid format specified!' )
 
     def span_key( self, span : dict ):
 
@@ -230,7 +261,8 @@ class FileParser( object ):
         if 'field' == span['type']:
             # Store field contents for later if requested.
             self.storage.store_field(
-                span['parent'], span['class'], span['contents'] )
+                span['parent'], span['class'], span['contents'],
+                span['mod_contents'] )
 
         # Actually remove the span.
         self.spans_open.pop( idx )
@@ -611,7 +643,7 @@ class FileParser( object ):
         for idx in range( len( self.spans_open ) - 1, -1, -1 ):
             span = self.spans_open[idx]
 
-            if 'field' != span['type']:
+            if 'struct' == span['type']:
                 logger.debug( 'skipping closing span %s...', span['class'] )
                 continue
 
@@ -619,20 +651,23 @@ class FileParser( object ):
             ('static' == span['term_style'] and \
             span['bytes_written'] >= span['size']) or \
             ('var' == span['term_style'] and 0x80 != (0x80 & file_byte)):
+                parent = self.spans_open[0]
+                parent_def = self.format_data['structs'][span['parent']]
 
-                if span['summarize']:
+                if 'none' != parent_def['summarize']:
                     # Store info for a summarization stanza.
                     self.storage.store_offset(
                         self.bytes_written - \
                             self.spans_open[idx]['bytes_written'],
                         span['bytes_written'],
-                        self.spans_open[-2]['class'] \
-                            if len( self.spans_open ) > 1 else None,
+                        span['parent'],
                         span['class'],
+                        span['counts_written'],
                         span['contents'],
-                        self.format_data\
-                            ['structs'][span['parent']]['counts_written'],
-                        span['summarize'] == 'sum_repeat' )
+                        span['mod_contents'],
+                        parent_def['counts_written'],
+                        parent_def['summarize'],
+                        span['format'] )
 
                 self.close_span( idx )
                 if not self.spans_open:
