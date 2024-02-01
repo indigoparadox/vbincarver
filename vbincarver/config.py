@@ -84,6 +84,10 @@ class FormatConfig( object ):
                             [struct_key, field_def['match_field'][0]]
                 if 'mod_contents' not in field_def:
                     field_def['mod_contents'] = 'field_contents'
+                if 'summarize' not in field_def:
+                    field_def['summarize'] = 'default'
+                assert( field_def['summarize'] in \
+                    ['sum_repeat', 'first_only', 'none', 'default'] )
 
     def merge_subtree(
         self, import_data : dict, format_key : str = 'root',

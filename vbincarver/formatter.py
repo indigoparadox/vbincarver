@@ -186,8 +186,9 @@ class SummaryFormatter( BytesFormatter ):
 
     def format_field( self, contents, format_in : str ):
         if 'color' == format_in:
-            contents = \
-                '<div style="background: #{}; width: 10px; height: 10px;"></div>'.format( hex( contents ).lstrip( '0x' ).zfill( 6 ) )
+            style = 'background: #{}; width: 10px; height: 10px;'.format(
+                hex( contents ).lstrip( '0x' ).zfill( 6 ) )
+            contents = '<div style="{}"></div>'.format( style )
         return contents
 
     def write_struct_head( self, offset : str, hex_byte : dict ):
@@ -251,10 +252,11 @@ class SummaryFormatter( BytesFormatter ):
                 # Write the field.
 
                 self.open_span(
-                    'hex-field hex-field-{} hex-field-{}-{}'.format(
+                    'hex-field hex-field-{} hex-field-{}-{}{}'.format(
                         self.format_class( hex_byte['field'] ),
                         self.format_class( hex_byte['field'] ),
-                        hex_byte['fid'] ),
+                        hex_byte['fid'],
+                        ' hex-lsbf' if hex_byte['lsbf'] else '' ),
                     indent=SummaryFormatter.INDENT_FIELD )
                 self.open_span(
                     'hex-label', contents=hex_byte['field'],

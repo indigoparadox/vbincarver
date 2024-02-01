@@ -1,0 +1,118 @@
+---
+structs:
+   gif_head:
+      offset_type: static
+      offset: 0
+      fields:
+         signature:
+            offset: 0
+            size: 3
+            format: string
+         version:
+            offset: 3
+            size: 3
+            format: string
+         width:
+            offset: 6
+            size: 2
+            lsbf: true
+         height:
+            offset: 8
+            size: 2
+            lsbf: true
+         packed:
+            offset: 10
+            size: 1
+         bg_color:
+            offset: 11
+            size: 1
+         aspect_radio:
+            offset: 12
+            size: 1
+   gif_palette:
+      offset_type: follow
+      follows: [gif_head]
+      first_byte_not: [0x2c]
+      fields:
+         color:
+            offset: 0
+            size: 3
+            format: color
+            count_field: gif_head/packed
+            count_mod: 1 << ((count_field & 0x3) + 1)
+   ext_block:
+      offset_type: follow
+      follows:
+         - gif_head
+         - gif_palette
+      first_byte_is: [0x21]
+      fields:
+         separator:
+            offset: 0
+            size: 1
+         label:
+            offset: 1
+            size: 1
+         block_size:
+            offset: 2
+            size: 1
+         byte:
+            offset: 3
+            size: 1
+            count_field: ext_block/block_size
+            # TODO: Different rules for different ext blocks?
+            count_mod: 5 if struct['fields_written']['label']['last_contents'] == 0xf9 else 1 / 0
+            summarize: sum_repeat
+   image_desc:
+      offset_type: follow
+      follows:
+         - gif_head
+         - gif_palette
+         - ext_block
+      first_byte_is: [0x2c]
+      fields:
+         separator:
+            offset: 0
+            size: 1
+         left:
+            offset: 1
+            size: 2
+            lsbf: true
+         top:
+            offset: 3
+            size: 2
+            lsbf: true
+         width:
+            offset: 5
+            size: 2
+            lsbf: true
+         height:
+            offset: 7
+            size: 2
+            lsbf: true
+         packed:
+            offset: 9
+            size: 1
+   lzw:
+      offset_type: follow
+      follows:
+         - image_desc
+      fields:
+         code_size:
+            offset: 0
+            size: 1
+   data_block:
+      offset_type: follow
+      follows:
+         - lzw
+      fields:
+         size:
+            offset: 0
+            size: 1
+         byte:
+            offset: 1
+            size: 1
+            count_field: data_block/size
+            summarize: sum_repeat
+         terminator:
+            size: 1

@@ -11,6 +11,10 @@ body {
    color: black;
 }
 
+.hex-lsbf {
+   font-style: italic;
+}
+
 .hex-layout {
    font-family: monospace;
    display: inline-block;
@@ -89,29 +93,44 @@ body {
 /* Specific Structs */
 
 .hex-struct-ico-head,
+.hex-struct-gif-head,
 .hex-struct-alt-map,
 .hex-struct-file-head,
 .hex-struct-bmp-file {
    background: navy;
 }
 
-.hex-struct-ico-entry, .hex-struct-city-name, .hex-struct-track {
+.hex-struct-ico-entry,
+.hex-struct-city-name,
+.hex-struct-track,
+.hex-struct-image-desc {
    background: darkgreen;
 }
 
-.hex-struct-bmp-info, .hex-struct-xbit, .hex-struct-delta-time {
+.hex-struct-bmp-info,
+.hex-struct-xbit,
+.hex-struct-delta-time,
+.hex-struct-ext-block {
    background: saddlebrown;
 }
 
-.hex-struct-bmp-palette, .hex-struct-event, .hex-struct-poly {
+.hex-struct-bmp-palette,
+.hex-struct-gif-palette,
+.hex-struct-event,
+.hex-struct-poly {
    background: darkred;
 }
 
-.hex-struct-bmp-pixels, .hex-struct-meta-event, .hex-struct-layr {
+.hex-struct-bmp-pixels,
+.hex-struct-meta-event,
+.hex-struct-layr,
+.hex-struct-data-block {
    background: darkviolet;
 }
 
-.hex-struct-running-event, .hex-struct-posn {
+.hex-struct-running-event,
+.hex-struct-posn,
+.hex-struct-lzw {
    background: darkslateblue;
 }
 

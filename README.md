@@ -9,7 +9,7 @@ It does require a valid YAML file for the binary file to be dissected. Please se
 
 With a grammar in place, simply run it as:
 
-> ./vbincarver.py -f ico.yaml -o example.html example.ico
+> ./vbincarver.py -f ico -o example.html example.ico
 
 ## Ideas:
 

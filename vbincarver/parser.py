@@ -56,7 +56,7 @@ class FileParserStorage( object ):
     def store_offset(
         self, offset : int, sz : int, struct : str, field : str, fid : int,
         contents : int, mod_contents : str, sid : int, summarize : str,
-        format_in : str
+        format_in : str, lsbf_in : bool
     ):
         prev_offset = list( self.byte_storage.items() )
 
@@ -65,11 +65,11 @@ class FileParserStorage( object ):
 
         if 'sum_repeat' == summarize and \
         0 < len( self.byte_storage ) and \
-        prev_offset[1]['field'] == field and \
-        prev_offset[1]['struct'] == struct and \
-        prev_offset[1]['sid'] == sid:
-            self.byte_storage[prev_offset[0]]['size'] += sz
-            self.byte_storage[prev_offset[0]]['contents'] = None
+        prev_offset[-1][1]['field'] == field and \
+        prev_offset[-1][1]['struct'] == struct and \
+        prev_offset[-1][1]['sid'] == sid:
+            self.byte_storage[prev_offset[-1][0]]['size'] += sz
+            self.byte_storage[prev_offset[-1][0]]['contents'] = None
 
         elif 'first_only' == summarize and \
         struct in self.byte_storage_idx and \
@@ -84,8 +84,9 @@ class FileParserStorage( object ):
                 self.byte_storage_idx[struct] = {sid: offset}
 
             self.byte_storage[offset] = {'struct': struct, 'size': sz,
-                'sid': sid, 'field': field, 'fid': fid, 'contents': contents,
-                'summarize': summarize, 'format': format_in}
+                'sid': sid, 'field': field, 'fid': fid,
+                'contents': contents, 'summarize': summarize, 
+                'format': format_in, 'lsbf': lsbf_in}
 
 class ChunkFinder( object ):
 
@@ -219,6 +220,7 @@ class FileParser( object ):
         span['counts_written'] = kwargs['counts_written']
         span['parent'] = kwargs['parent']
         span['mod_contents'] = kwargs['mod_contents']
+        span['summarize'] = kwargs['summarize']
         if 'size' in kwargs:
             span['size'] = kwargs['size']
         if 'count_field' in kwargs:
@@ -263,6 +265,10 @@ class FileParser( object ):
             self.storage.store_field(
                 span['parent'], span['class'], span['contents'],
                 span['mod_contents'] )
+
+            # Stow last contents in field def.
+            self.spans_open[-2]['fields_written'] \
+                [span['class']]['last_contents'] = span['contents']
 
         # Actually remove the span.
         self.spans_open.pop( idx )
@@ -467,7 +473,10 @@ class FileParser( object ):
                 count_idx, count_struct_key )
 
         return eval( field['count_mod'],
-            {}, {'count_field': count_field_storage[count_idx] } )
+            {}, {
+                'count_field': count_field_storage[count_idx],
+                'struct': self.spans_open[-1]
+            } )
 
     def _last_field_repeats( self ):
 
@@ -490,6 +499,12 @@ class FileParser( object ):
         logger.debug( 'repeat count %d higher than written count %d...',
             repeat_count, self.last_field[1]['counts_written'] )
         return True
+
+    def _stow_field_def( self, open_struct : dict, key : str ):
+        if not 'fields_written' in open_struct:
+            open_struct['fields_written'] = {}
+        open_struct['fields_written'][key] = open_struct['fields'][key]
+        del open_struct['fields'][key]
 
     def select_span_field( self, open_struct : dict ):
         
@@ -544,7 +559,7 @@ class FileParser( object ):
                 # Remove field now that we've written it.
                 open_struct['fields'][key]['counts_written'] += 1
                 self._set_last_field( (key, open_struct['fields'][key]) )
-                del open_struct['fields'][key]
+                self._stow_field_def( open_struct, key )
                 break
 
             elif 'follows' in field and \
@@ -561,7 +576,7 @@ class FileParser( object ):
                 # Remove field now that we've written it.
                 open_struct['fields'][key]['counts_written'] += 1
                 self._set_last_field( (key, open_struct['fields'][key]) )
-                del open_struct['fields'][key]
+                self._stow_field_def( open_struct, key )
                 break
 
         logger.debug( 'selecting field complete.' )
@@ -666,8 +681,11 @@ class FileParser( object ):
                         span['contents'],
                         span['mod_contents'],
                         parent_def['counts_written'],
-                        parent_def['summarize'],
-                        span['format'] )
+                        parent_def['summarize'] \
+                            if 'default' == span['summarize'] else \
+                            span['summarize'],
+                        span['format'],
+                        span['lsbf'] )
 
                 self.close_span( idx )
                 if not self.spans_open:
