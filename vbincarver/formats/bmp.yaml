@@ -85,8 +85,8 @@ structs:
             # by reading it as MSBF and shifting right one byte.
             mod_contents: (field_contents >> 8)
    bmp_pixels:
-      offset_type: follow
-      follows: [bmp_palette]
+      offset_type: stored
+      offset_field: bmp_file/bmp_offset
       fields:
          px:
             count_field: bmp_info/img_sz

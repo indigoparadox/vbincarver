@@ -426,7 +426,8 @@ class FileParser( object ):
 
             # Struct that starts at a field mentioned elsewhere in the
             # file.
-            elif 'offset_field' in struct and \
+            elif 'stored' == struct['offset_type'] and \
+            'offset_field' in struct and \
             [x for x in self.storage.get_field(
                 struct['offset_field'][0], struct['offset_field'][1] ) \
             if x == self.bytes_written]:

@@ -16,6 +16,9 @@ structs:
    bmp_info:
       offset_type: stored
       offset_field: ico_entry/img_offset
+   bmp_pixels:
+      offset_type: follow
+      follows: [bmp_palette]
 
    # Icon-specific stuff.
    ico_head:
