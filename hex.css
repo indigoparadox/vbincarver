@@ -96,6 +96,7 @@ body {
 .hex-struct-gif-head,
 .hex-struct-alt-map,
 .hex-struct-file-head,
+.hex-struct-png-file,
 .hex-struct-bmp-file {
    background: navy;
 }
@@ -130,7 +131,8 @@ body {
 
 .hex-struct-running-event,
 .hex-struct-posn,
-.hex-struct-lzw {
+.hex-struct-lzw,
+.hex-struct-png-chunk {
    background: darkslateblue;
 }
 

@@ -1,0 +1,31 @@
+---
+mime: image/png
+structs:
+   png_file:
+      offset_type: static
+      offset: 0
+      fields:
+         magic:
+            offset: 0
+            size: 8
+   png_chunk:
+      offset_type: follow
+      follows:
+         - png_file
+         - png_chunk
+      fields:
+         length:
+            offset: 0
+            size: 4
+         type:
+            offset: 4
+            size: 4
+            format: string
+         byte:
+            offset: 8
+            size: 1
+            count_field: png_chunk/length
+            summarize: sum_repeat
+         crc:
+            size: 4
+            follows: byte
