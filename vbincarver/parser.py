@@ -27,7 +27,7 @@ class FileParserStorage( object ):
         try:
             return self.field_storage[struct_key]['fields'][field_key]
         except KeyError as e:
-            logger.warn( e )
+            logger.warn( 'struct or field not found: %s', e )
             return []
 
     def store_field(
@@ -69,7 +69,13 @@ class FileParserStorage( object ):
         prev_offset[-1][1]['struct'] == struct and \
         prev_offset[-1][1]['sid'] == sid:
             self.byte_storage[prev_offset[-1][0]]['size'] += sz
-            self.byte_storage[prev_offset[-1][0]]['contents'] = None
+            if 'string' == format_in:
+                # Try to build a string out of discrete bytes.
+                self.byte_storage[prev_offset[-1][0]]['contents'] += \
+                    contents
+            else:
+                # Don't sum number contents, the result is garbage.
+                self.byte_storage[prev_offset[-1][0]]['contents'] = None
 
         elif 'first_only' == summarize and \
         struct in self.byte_storage_idx and \
@@ -92,11 +98,15 @@ class ChunkFinder( object ):
 
     ''' Special ring buffer for finding the start of chunks. '''
 
-    def __init__( self, owner ):
+    def __init__( self, owner, chunk_sz : int, type_offset : int ):
         self.owner = owner
         self.magic_buf = ''
         self.start_offset = 0
-        self.chunk_sz = 4
+        self.compare_offset = type_offset
+        self.chunk_sz = chunk_sz
+
+    def compare( self, challenger : str ):
+        return self.magic_buf[self.compare_offset:] == challenger       
 
     def dump( self ):
 
@@ -161,7 +171,9 @@ class FileParser( object ):
         self.format_data = format_data
         self.storage = FileParserStorage()
         self.buffer = []
-        self.chunk_finder = ChunkFinder( self )
+        self.chunk_finder = ChunkFinder( self,
+                format_data['chunk_size'],
+                format_data['chunk_type_offset'] )
 
     def _add_span( self, type_in : str, class_in : str ):
         logger = logging.getLogger( 'parser.add.span' )
@@ -400,10 +412,10 @@ class FileParser( object ):
                 break
 
             elif 'chunk' == struct['offset_type'] and \
-            self.chunk_finder.magic_buf == struct['offset_magic']:
+            self.chunk_finder.compare( struct['offset_magic'] ):
                 
                 logger.debug( 'found chunk %s starting at offset: %d',
-                    self.chunk_finder.magic_buf,
+                    struct['offset_magic'],
                     self.chunk_finder.start_offset )
                 self.add_span_struct( key, **struct )
                 break
@@ -473,9 +485,16 @@ class FileParser( object ):
             logger.debug( 'parsed count index %d from structs[%s]...',
                 count_idx, count_struct_key )
 
+        count_field = None
+        try:
+            count_field = count_field_storage[count_idx]
+        except IndexError:
+            logger.error( 'no last field of class %s found in last %s!',
+                field['count_field'][1], field['count_field'][0] )
+                
         return eval( field['count_mod'],
             {}, {
-                'count_field': count_field_storage[count_idx],
+                'count_field': count_field,
                 'struct': self.spans_open[-1]
             } )
 
@@ -672,6 +691,7 @@ class FileParser( object ):
 
                 if 'none' != parent_def['summarize']:
                     # Store info for a summarization stanza.
+                    assert( None != span['contents'] )
                     self.storage.store_offset(
                         self.bytes_written - \
                             self.spans_open[idx]['bytes_written'],

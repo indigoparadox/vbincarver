@@ -1,5 +1,7 @@
 ---
 mime: image/png
+chunk_type_offset: 4
+chunk_size: 8
 structs:
    png_file:
       offset_type: static
@@ -8,11 +10,101 @@ structs:
          magic:
             offset: 0
             size: 8
+   ihdr_chunk:
+      offset_type: chunk
+      offset_magic: IHDR
+      fields:
+         length:
+            offset: 0
+            size: 4
+         type:
+            offset: 4
+            size: 4
+            format: string
+         width:
+            offset: 8
+            size: 4
+         height:
+            offset: 12
+            size: 4
+         bpp:
+            offset: 16
+            size: 1
+         color_type:
+            offset: 17
+            size: 1
+         compression:
+            offset: 18
+            size: 1
+         filter:
+            offset: 19
+            size: 1
+         interlace:
+            offset: 20
+            size: 1
+         crc:
+            offset: 21
+            size: 4
+   plte_chunk:
+      offset_type: chunk
+      offset_magic: PLTE
+      fields:
+         length:
+            offset: 0
+            size: 4
+         type:
+            offset: 4
+            size: 4
+            format: string
+         color:
+            offset: 8
+            size: 3
+            count_field: plte_chunk/length
+            count_mod: count_field / 3
+            format: color
+         crc:
+            size: 4
+            follows: color
+   text_chunk:
+      offset_type: chunk
+      offset_magic: tEXt
+      fields:
+         length:
+            offset: 0
+            size: 4
+         type:
+            offset: 4
+            size: 4
+            format: string
+         text:
+            offset: 8
+            size: 1
+            count_field: text_chunk/length
+            summarize: sum_repeat
+            format: string
+         crc:
+            size: 4
+            follows: text
+   iend_chunk:
+      offset_type: chunk
+      offset_magic: IEND
+      fields:
+         length:
+            offset: 0
+            size: 4
+         type:
+            offset: 4
+            size: 4
+         crc:
+            size: 4
+            offset: 8
    png_chunk:
       offset_type: follow
       follows:
-         - png_file
+         - ihdr_chunk
+         - plte_chunk
          - png_chunk
+         - text_chunk
       fields:
          length:
             offset: 0

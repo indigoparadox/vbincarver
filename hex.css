@@ -90,6 +90,10 @@ body {
    float: right;
 }
 
+.hex-fields {
+   max-width: 800px;
+}
+
 /* Specific Structs */
 
 .hex-struct-ico-head,
@@ -104,28 +108,32 @@ body {
 .hex-struct-ico-entry,
 .hex-struct-city-name,
 .hex-struct-track,
-.hex-struct-image-desc {
+.hex-struct-image-desc,
+.hex-struct-ihdr-chunk {
    background: darkgreen;
 }
 
 .hex-struct-bmp-info,
 .hex-struct-xbit,
 .hex-struct-delta-time,
-.hex-struct-ext-block {
+.hex-struct-ext-block,
+.hex-struct-iend-chunk {
    background: saddlebrown;
 }
 
 .hex-struct-bmp-palette,
 .hex-struct-gif-palette,
 .hex-struct-event,
-.hex-struct-poly {
+.hex-struct-poly,
+.hex-struct-plte-chunk {
    background: darkred;
 }
 
 .hex-struct-bmp-pixels,
 .hex-struct-meta-event,
 .hex-struct-layr,
-.hex-struct-data-block {
+.hex-struct-data-block,
+.hex-struct-text-chunk {
    background: darkviolet;
 }
 

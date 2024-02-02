@@ -5,6 +5,9 @@ import logging
 import pprint
 import importlib.resources
 
+class ConfigException( Exception ):
+    pass
+
 class FormatConfig( object ):
 
     def open_format( self, path ):
@@ -45,6 +48,11 @@ class FormatConfig( object ):
 
         ''' Fill in fields not required in definition file. '''
 
+        if not 'chunk_type_offset' in format_data:
+            format_data['chunk_type_offset'] = 0
+        if not 'chunk_size' in format_data:
+            format_data['chunk_size'] = 4
+
         for struct_key in format_data['structs']:
             struct_def = format_data['structs'][struct_key]
             struct_def['counts_written'] = 0
@@ -57,7 +65,8 @@ class FormatConfig( object ):
             if 'summarize' not in struct_def:
                 struct_def['summarize'] = 'default'
             assert( struct_def['summarize'] in \
-                ['sum_repeat', 'first_only', 'none', 'no_fields', 'default'] )
+                ['sum_repeat', 'first_only', 'none',
+                'no_fields', 'default'] )
 
             for field_key in struct_def['fields']:
                 field_def = struct_def['fields'][field_key]
@@ -88,6 +97,11 @@ class FormatConfig( object ):
                     field_def['summarize'] = 'default'
                 assert( field_def['summarize'] in \
                     ['sum_repeat', 'first_only', 'none', 'default'] )
+
+                if field_def['summarize'] == 'sum_repeat' and \
+                field_def['format'] == 'color':
+                    raise ConfigException(
+                        'cannot combine "sum_repeat" and "color" format!' )
 
     def merge_subtree(
         self, import_data : dict, format_key : str = 'root',
